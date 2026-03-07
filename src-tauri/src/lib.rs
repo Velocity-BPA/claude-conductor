@@ -16,15 +16,12 @@ pub use commands::*;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        // ── Plugins ──────────────────────────────────────────────────────────
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
-        // ── State ─────────────────────────────────────────────────────────────
         .manage(process_manager::InstanceRegistry::new())
-        // ── Commands ─────────────────────────────────────────────────────────
         .invoke_handler(tauri::generate_handler![
             commands::list_profiles,
             commands::create_profile,
@@ -40,13 +37,12 @@ pub fn run() {
             commands::get_settings,
             commands::update_settings,
             commands::detect_claude_path,
+            commands::read_host_claude_config,
         ])
-        // ── Setup ─────────────────────────────────────────────────────────────
         .setup(|app| {
             setup_tray(app.handle())?;
             Ok(())
         })
-        // ── Run ───────────────────────────────────────────────────────────────
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, event| {
@@ -108,7 +104,6 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
 }
 
 /// Rebuild the tray menu with current profile list.
-/// Called after profile create/update/delete and at startup.
 pub fn rebuild_tray_menu(app: &AppHandle) -> anyhow::Result<()> {
     let store = profile_store::ProfileStore::new(app)?;
     let index = store.load_index()?;
