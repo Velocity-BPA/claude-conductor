@@ -142,13 +142,30 @@ pub fn detect_claude_path() -> CmdResult<Option<String>> {
     Ok(detect_claude_desktop_path())
 }
 
-// ─── Force quit (bypasses prevent_exit) ──────────────────────────────────────
+// ─── Window control commands ──────────────────────────────────────────────────
 
-/// Called by the frontend after the user confirms the quit dialog.
-/// Uses app.exit() which bypasses the RunEvent::ExitRequested handler.
+/// Hard quit — bypasses prevent_exit by calling std::process::exit directly.
 #[tauri::command]
-pub fn force_quit(app: AppHandle) {
-    app.exit(0);
+pub fn force_quit() {
+    std::process::exit(0);
+}
+
+/// Minimize the main window.
+#[tauri::command]
+pub fn minimize_window(app: AppHandle) -> CmdResult<()> {
+    if let Some(win) = app.get_webview_window("main") {
+        win.minimize().map_err(err)?;
+    }
+    Ok(())
+}
+
+/// Hide the main window to tray.
+#[tauri::command]
+pub fn hide_window(app: AppHandle) -> CmdResult<()> {
+    if let Some(win) = app.get_webview_window("main") {
+        win.hide().map_err(err)?;
+    }
+    Ok(())
 }
 
 // ─── Read host Claude Desktop config ─────────────────────────────────────────
