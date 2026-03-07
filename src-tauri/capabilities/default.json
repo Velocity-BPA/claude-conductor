@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "default",
+  "description": "Default permissions for Claude Conductor",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:default",
+    "core:app:default",
+    "core:tray:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "fs:default",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "fs:allow-create-dir",
+    "fs:allow-remove-dir",
+    "fs:allow-remove-file",
+    "fs:allow-read-dir",
+    "fs:allow-exists",
+    "notification:default",
+    "notification:allow-notify",
+    "process:default",
+    "process:allow-exit",
+    "process:allow-restart",
+    "shell:default",
+    "shell:allow-open"
+  ]
+}
