@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::app_detector::detect_claude_desktop_path;
 use crate::config_generator::write_desktop_config;
@@ -142,10 +142,17 @@ pub fn detect_claude_path() -> CmdResult<Option<String>> {
     Ok(detect_claude_desktop_path())
 }
 
+// ─── Force quit (bypasses prevent_exit) ──────────────────────────────────────
+
+/// Called by the frontend after the user confirms the quit dialog.
+/// Uses app.exit() which bypasses the RunEvent::ExitRequested handler.
+#[tauri::command]
+pub fn force_quit(app: AppHandle) {
+    app.exit(0);
+}
+
 // ─── Read host Claude Desktop config ─────────────────────────────────────────
 
-/// Reads the real Claude Desktop config from the host machine and returns
-/// the mcpServers map so the frontend can present a checklist import UI.
 #[tauri::command]
 pub fn read_host_claude_config() -> CmdResult<serde_json::Value> {
     let config_path = {
@@ -177,7 +184,6 @@ pub fn read_host_claude_config() -> CmdResult<serde_json::Value> {
     let raw = std::fs::read_to_string(&config_path).map_err(err)?;
     let parsed: serde_json::Value = serde_json::from_str(&raw).map_err(err)?;
 
-    // Return only the mcpServers object (or empty object if absent)
     let servers = parsed
         .get("mcpServers")
         .cloned()
