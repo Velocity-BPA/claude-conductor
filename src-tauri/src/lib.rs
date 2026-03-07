@@ -38,6 +38,7 @@ pub fn run() {
             commands::update_settings,
             commands::detect_claude_path,
             commands::read_host_claude_config,
+            commands::force_quit,
         ])
         .setup(|app| {
             setup_tray(app.handle())?;
@@ -56,7 +57,7 @@ pub fn run() {
 
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let show_item = MenuItemBuilder::with_id("show", "Open Conductor").build(app)?;
-    let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit Conductor").build(app)?;
     let separator = tauri::menu::PredefinedMenuItem::separator(app)?;
 
     let menu = MenuBuilder::new(app)
@@ -73,9 +74,11 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 if let Some(win) = app.get_webview_window("main") {
                     let _ = win.show();
                     let _ = win.set_focus();
+                    // Emit event so frontend can show quit confirm if needed
                 }
             }
             "quit" => {
+                // Tray quit bypasses confirm — direct exit
                 app.exit(0);
             }
             id if id.starts_with("launch:") => {
@@ -114,7 +117,7 @@ pub fn rebuild_tray_menu(app: &AppHandle) -> anyhow::Result<()> {
 
     if let Some(tray) = tray {
         let show_item = MenuItemBuilder::with_id("show", "Open Conductor").build(app)?;
-        let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+        let quit_item = MenuItemBuilder::with_id("quit", "Quit Conductor").build(app)?;
         let sep = tauri::menu::PredefinedMenuItem::separator(app)?;
 
         let running_count = running_ids.len();
