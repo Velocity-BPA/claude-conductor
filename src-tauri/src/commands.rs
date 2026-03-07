@@ -144,7 +144,7 @@ pub fn detect_claude_path() -> CmdResult<Option<String>> {
 
 // ─── Window control commands ──────────────────────────────────────────────────
 
-/// Hard quit — bypasses prevent_exit by calling std::process::exit directly.
+/// Hard quit — std::process::exit bypasses prevent_exit entirely.
 #[tauri::command]
 pub fn force_quit() {
     std::process::exit(0);
@@ -159,7 +159,20 @@ pub fn minimize_window(app: AppHandle) -> CmdResult<()> {
     Ok(())
 }
 
-/// Hide the main window to tray.
+/// Toggle maximize/restore the main window.
+#[tauri::command]
+pub fn toggle_maximize(app: AppHandle) -> CmdResult<()> {
+    if let Some(win) = app.get_webview_window("main") {
+        if win.is_maximized().unwrap_or(false) {
+            win.unmaximize().map_err(err)?;
+        } else {
+            win.maximize().map_err(err)?;
+        }
+    }
+    Ok(())
+}
+
+/// Hide the main window to tray (used by tray menu, not traffic lights).
 #[tauri::command]
 pub fn hide_window(app: AppHandle) -> CmdResult<()> {
     if let Some(win) = app.get_webview_window("main") {
