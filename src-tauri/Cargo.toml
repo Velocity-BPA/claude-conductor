@@ -37,6 +37,9 @@ log = "0.4"
 # Process monitoring
 sysinfo = "0.31"
 
+# Secure credential storage (macOS Keychain, Windows Credential Store, Linux Secret Service)
+keyring = { version = "2", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 
