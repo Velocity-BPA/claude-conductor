@@ -141,3 +141,47 @@ pub fn update_settings(app: AppHandle, settings: AppSettings) -> CmdResult<()> {
 pub fn detect_claude_path() -> CmdResult<Option<String>> {
     Ok(detect_claude_desktop_path())
 }
+
+// ─── Read host Claude Desktop config ─────────────────────────────────────────
+
+/// Reads the real Claude Desktop config from the host machine and returns
+/// the mcpServers map so the frontend can present a checklist import UI.
+#[tauri::command]
+pub fn read_host_claude_config() -> CmdResult<serde_json::Value> {
+    let config_path = {
+        #[cfg(target_os = "macos")]
+        {
+            let home = std::env::var("HOME").map_err(err)?;
+            std::path::PathBuf::from(home)
+                .join("Library/Application Support/Claude/claude_desktop_config.json")
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let appdata = std::env::var("APPDATA").map_err(err)?;
+            std::path::PathBuf::from(appdata).join("Claude/claude_desktop_config.json")
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let home = std::env::var("HOME").map_err(err)?;
+            std::path::PathBuf::from(home).join(".config/Claude/claude_desktop_config.json")
+        }
+    };
+
+    if !config_path.exists() {
+        return Err(format!(
+            "Claude Desktop config not found at {}",
+            config_path.display()
+        ));
+    }
+
+    let raw = std::fs::read_to_string(&config_path).map_err(err)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw).map_err(err)?;
+
+    // Return only the mcpServers object (or empty object if absent)
+    let servers = parsed
+        .get("mcpServers")
+        .cloned()
+        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+
+    Ok(servers)
+}
