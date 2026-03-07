@@ -10,6 +10,10 @@ pub struct McpServerConfig {
     pub args: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
+    /// Keys in `env` whose values are stored in the system keychain.
+    /// The stored value in `env` for these keys is an empty string sentinel.
+    #[serde(default)]
+    pub secret_keys: Vec<String>,
 }
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
