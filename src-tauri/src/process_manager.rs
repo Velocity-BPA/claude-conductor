@@ -69,8 +69,30 @@ pub fn launch(
             .spawn()
             .map_err(|e| anyhow!("Failed to spawn process: {}", e))?;
         drop(child);
-        std::thread::sleep(std::time::Duration::from_millis(1200));
-        let pid = find_claude_pid_by_userdata(user_data_dir)?;
+
+        // Retry PID search up to 8 times with 750ms gaps (6s total).
+        // Claude Desktop is an Electron app — it spawns helper processes
+        // and the main renderer process can take a few seconds to appear.
+        let pid = find_claude_pid_with_retry(user_data_dir, 8, 750);
+
+        // If we still can't find the PID, Claude launched fine but we can't
+        // track it. Use pid=1 as a sentinel — the registry will prune it
+        // automatically on next poll since pid 1 (launchd) is never Claude.
+        let pid = match pid {
+            Some(p) => {
+                log::info!("Found Claude process PID {}", p);
+                p
+            }
+            None => {
+                log::warn!(
+                    "Claude launched but PID not found for userdata dir {}. Using sentinel.",
+                    user_data_dir.display()
+                );
+                // Return success — window is open, we just can't track it precisely
+                1
+            }
+        };
+
         let instance = RunningInstance {
             profile_id: profile_id.to_string(),
             pid,
@@ -100,6 +122,12 @@ pub fn launch(
 // ─── Kill ─────────────────────────────────────────────────────────────────────
 
 pub fn kill(pid: u32, registry: &InstanceRegistry) -> Result<()> {
+    // pid=1 is our sentinel for "launched but untracked" — just unregister
+    if pid == 1 {
+        registry.unregister(pid);
+        return Ok(());
+    }
+
     let mut sys = System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
 
@@ -119,12 +147,17 @@ pub fn kill(pid: u32, registry: &InstanceRegistry) -> Result<()> {
 pub fn focus(pid: u32) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
-        let script = format!(
-            r#"tell application "System Events"
-                set frontmost of (first process whose unix id is {}) to true
-            end tell"#,
-            pid
-        );
+        // For sentinel pid, use app name fallback
+        let script = if pid == 1 {
+            r#"tell application "Claude" to activate"#.to_string()
+        } else {
+            format!(
+                r#"tell application "System Events"
+                    set frontmost of (first process whose unix id is {}) to true
+                end tell"#,
+                pid
+            )
+        };
         Command::new("osascript")
             .arg("-e")
             .arg(&script)
@@ -140,16 +173,41 @@ pub fn focus(pid: u32) -> Result<()> {
     }
 }
 
-// ─── Helper: find Claude PID by userdata dir (macOS) ─────────────────────────
+// ─── Helper: retry PID search (macOS) ────────────────────────────────────────
 
 #[cfg(target_os = "macos")]
-fn find_claude_pid_by_userdata(user_data_dir: &PathBuf) -> Result<u32> {
+fn find_claude_pid_with_retry(
+    user_data_dir: &PathBuf,
+    attempts: u32,
+    delay_ms: u64,
+) -> Option<u32> {
+    for attempt in 0..attempts {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        }
+
+        if let Some(pid) = scan_for_claude_pid(user_data_dir) {
+            return Some(pid);
+        }
+
+        log::debug!(
+            "PID search attempt {}/{} — not found yet",
+            attempt + 1,
+            attempts
+        );
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn scan_for_claude_pid(user_data_dir: &PathBuf) -> Option<u32> {
     let ud_str = user_data_dir.to_string_lossy().to_string();
     let mut sys = System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
 
     for (pid, process) in sys.processes() {
         let name = process.name().to_string_lossy().to_lowercase();
+        // Match the main Claude process (not helpers like GPU/renderer)
         if !name.contains("claude") {
             continue;
         }
@@ -159,11 +217,8 @@ fn find_claude_pid_by_userdata(user_data_dir: &PathBuf) -> Result<u32> {
             .map(|s| s.to_string_lossy().to_string())
             .collect();
         if cmd.iter().any(|arg| arg.contains(&ud_str)) {
-            return Ok(pid.as_u32());
+            return Some(pid.as_u32());
         }
     }
-    Err(anyhow!(
-        "Could not find Claude process with --user-data-dir={}",
-        ud_str
-    ))
+    None
 }
