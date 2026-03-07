@@ -1,18 +1,16 @@
 import { useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { exit } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
 import { clsx } from "clsx";
 
 export function Titlebar() {
   const win = getCurrentWindow();
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
 
-  const handleQuit = () => setShowQuitConfirm(true);
   const handleMinimize = () => win.minimize();
   const handleHide = () => win.hide();
-
   const confirmQuit = async () => {
-    await exit(0);
+    await invoke("force_quit");
   };
 
   return (
@@ -22,35 +20,32 @@ export function Titlebar() {
         className="flex items-center justify-between h-10 px-4 bg-bg-surface border-b border-bg-border shrink-0 select-none"
         style={{ minHeight: 40 }}
       >
-        {/* Traffic light buttons — left side, macOS convention */}
+        {/* Traffic lights — left, macOS order: close · minimize · zoom */}
         <div className="flex items-center gap-1.5">
-          {/* Red — Quit */}
-          <button
-            onClick={handleQuit}
-            className="group w-3 h-3 rounded-full bg-[#ff605c] hover:brightness-90 active:brightness-75 transition-all flex items-center justify-center"
+          <TrafficButton
+            color="#ff605c"
+            hoverSymbol="✕"
+            hoverTextColor="#4d0000"
             title="Quit"
-          >
-            <span className="hidden group-hover:block text-[8px] text-[#4d0000] font-bold leading-none">✕</span>
-          </button>
-          {/* Yellow — Minimize */}
-          <button
-            onClick={handleMinimize}
-            className="group w-3 h-3 rounded-full bg-[#f6be00] hover:brightness-90 active:brightness-75 transition-all flex items-center justify-center"
+            onClick={() => setShowQuitConfirm(true)}
+          />
+          <TrafficButton
+            color="#f6be00"
+            hoverSymbol="−"
+            hoverTextColor="#4d3800"
             title="Minimize"
-          >
-            <span className="hidden group-hover:block text-[8px] text-[#4d3800] font-bold leading-none">−</span>
-          </button>
-          {/* Green — Hide to tray */}
-          <button
-            onClick={handleHide}
-            className="group w-3 h-3 rounded-full bg-[#00ca4e] hover:brightness-90 active:brightness-75 transition-all flex items-center justify-center"
+            onClick={handleMinimize}
+          />
+          <TrafficButton
+            color="#00ca4e"
+            hoverSymbol="+"
+            hoverTextColor="#003d18"
             title="Hide to tray"
-          >
-            <span className="hidden group-hover:block text-[8px] text-[#003d18] font-bold leading-none">+</span>
-          </button>
+            onClick={handleHide}
+          />
         </div>
 
-        {/* Title — centered */}
+        {/* Centered title */}
         <div
           data-tauri-drag-region
           className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none"
@@ -61,11 +56,10 @@ export function Titlebar() {
           <span className="text-text-muted text-xs font-mono">v0.1</span>
         </div>
 
-        {/* Right spacer */}
+        {/* Right spacer to balance layout */}
         <div className="w-[72px]" data-tauri-drag-region />
       </div>
 
-      {/* Quit confirmation dialog */}
       {showQuitConfirm && (
         <QuitConfirmDialog
           onConfirm={confirmQuit}
@@ -73,6 +67,44 @@ export function Titlebar() {
         />
       )}
     </>
+  );
+}
+
+// ─── Traffic light button ─────────────────────────────────────────────────────
+
+function TrafficButton({
+  color,
+  hoverSymbol,
+  hoverTextColor,
+  title,
+  onClick,
+}: {
+  color: string;
+  hoverSymbol: string;
+  hoverTextColor: string;
+  title: string;
+  onClick: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      title={title}
+      className="w-3 h-3 rounded-full flex items-center justify-center transition-all active:brightness-75"
+      style={{ background: color, filter: hovered ? "brightness(0.85)" : undefined }}
+    >
+      {hovered && (
+        <span
+          className="text-[8px] font-bold leading-none"
+          style={{ color: hoverTextColor }}
+        >
+          {hoverSymbol}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -86,27 +118,30 @@ function QuitConfirmDialog({
   onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in"
+      onClick={onCancel}
+    >
       <div
         className="card w-[340px] p-6 flex flex-col gap-4 animate-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
         <div>
-          <h2 className="font-display font-700 text-text-primary text-base">Quit Conductor?</h2>
+          <h2 className="font-display font-700 text-text-primary text-base">
+            Quit Conductor?
+          </h2>
           <p className="text-text-secondary text-sm mt-1.5 leading-relaxed">
-            Any running Claude Desktop instances will continue running. You can reopen Conductor from the menu bar icon.
+            Any running Claude Desktop instances will continue running independently.
+            You can reopen Conductor anytime from the menu bar.
           </p>
         </div>
         <div className="flex justify-end gap-2">
-          <button
-            className="btn-ghost"
-            onClick={onCancel}
-            autoFocus
-          >
+          <button className="btn-ghost" onClick={onCancel} autoFocus>
             Cancel
           </button>
           <button
-            className={clsx("btn-primary", "bg-[#ff605c] hover:bg-[#e5504e] border-[#ff605c]")}
+            className={clsx("btn-primary")}
+            style={{ background: "#ff605c", borderColor: "#ff605c" }}
             onClick={onConfirm}
           >
             Quit
