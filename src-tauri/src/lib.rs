@@ -49,11 +49,10 @@ pub fn run() {
         // ── Run ───────────────────────────────────────────────────────────────
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let RunEvent::ExitRequested { api, .. } = event {
+        .run(|_app, event| {
+            if let RunEvent::ExitRequested { ref api, .. } = event {
                 api.prevent_exit();
             }
-            let _ = (app, event);
         });
 }
 
