@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+src-tauri/target/
+
+# Tauri
+src-tauri/gen/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Type declarations
+*.tsbuildinfo
+
+# OS
+Thumbs.db
