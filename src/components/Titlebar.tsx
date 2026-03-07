@@ -11,10 +11,10 @@ export function Titlebar() {
         className="relative flex items-center h-10 px-4 bg-bg-surface border-b border-bg-border shrink-0 select-none"
         style={{ minHeight: 40 }}
       >
-        {/* Drag region sits as absolute z-0 behind everything */}
+        {/* Absolute drag region sits at z-0 behind everything */}
         <div data-tauri-drag-region className="absolute inset-0 z-0" />
 
-        {/* Traffic lights — z-10 so they receive clicks above the drag layer */}
+        {/* Traffic lights at z-10 — above the drag region */}
         <div className="relative z-10 flex items-center gap-1.5">
           {/* Red — Quit */}
           <TrafficButton
@@ -30,16 +30,16 @@ export function Titlebar() {
             title="Minimize"
             onClick={() => invoke("minimize_window")}
           />
-          {/* Green — Hide to tray */}
+          {/* Green — Maximize / Restore */}
           <TrafficButton
             color="#00ca4e"
-            symbol="+"
-            title="Hide to tray"
-            onClick={() => invoke("hide_window")}
+            symbol="⤢"
+            title="Maximize"
+            onClick={() => invoke("toggle_maximize")}
           />
         </div>
 
-        {/* Centered title — pointer-events-none so drag region works behind it */}
+        {/* Centered title — pointer-events-none so drag works behind it */}
         <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
           <span className="text-accent font-display font-700 text-sm tracking-wide">
             CONDUCTOR
@@ -47,7 +47,7 @@ export function Titlebar() {
           <span className="text-text-muted text-xs font-mono ml-2">v0.1</span>
         </div>
 
-        {/* Right spacer balances the traffic lights */}
+        {/* Right spacer */}
         <div className="relative z-10 ml-auto w-[60px]" />
       </div>
 
@@ -78,14 +78,8 @@ function TrafficButton({
 
   return (
     <button
-      onMouseDown={(e) => {
-        // Stop the drag region from intercepting this mousedown
-        e.stopPropagation();
-      }}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       title={title}
@@ -96,7 +90,7 @@ function TrafficButton({
       }}
     >
       {hovered && (
-        <span className="text-[8px] font-bold leading-none" style={{ color: "rgba(0,0,0,0.5)" }}>
+        <span className="text-[8px] font-bold leading-none" style={{ color: "rgba(0,0,0,0.45)" }}>
           {symbol}
         </span>
       )}
@@ -128,7 +122,7 @@ function QuitConfirmDialog({
           </h2>
           <p className="text-text-secondary text-sm mt-1.5 leading-relaxed">
             Any running Claude Desktop instances will keep running independently.
-            You can reopen Conductor from the menu bar icon.
+            You can reopen Conductor anytime from the menu bar.
           </p>
         </div>
         <div className="flex justify-end gap-2">
