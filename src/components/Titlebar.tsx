@@ -4,24 +4,41 @@ import { invoke } from "@tauri-apps/api/core";
 import { clsx } from "clsx";
 
 export function Titlebar() {
-  const win = getCurrentWindow();
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
 
-  const handleMinimize = () => win.minimize();
-  const handleHide = () => win.hide();
+  const handleMinimize = async () => {
+    const win = getCurrentWindow();
+    await win.minimize();
+  };
+
+  const handleHide = async () => {
+    const win = getCurrentWindow();
+    await win.hide();
+  };
+
   const confirmQuit = async () => {
     await invoke("force_quit");
   };
 
   return (
     <>
+      {/*
+        Key fix: the drag region is an ABSOLUTE layer that fills the bar.
+        The buttons sit in the normal flow ON TOP of it (z-10 > z-0).
+        This way Tauri's drag handler never intercepts button mousedown events.
+      */}
       <div
-        data-tauri-drag-region
-        className="flex items-center justify-between h-10 px-4 bg-bg-surface border-b border-bg-border shrink-0 select-none"
+        className="relative flex items-center h-10 px-4 bg-bg-surface border-b border-bg-border shrink-0 select-none"
         style={{ minHeight: 40 }}
       >
-        {/* Traffic lights — left, macOS order: close · minimize · zoom */}
-        <div className="flex items-center gap-1.5">
+        {/* Drag region — fills the whole bar but sits behind everything */}
+        <div
+          data-tauri-drag-region
+          className="absolute inset-0 z-0"
+        />
+
+        {/* Traffic lights — in normal flow, z-10 so they're above the drag region */}
+        <div className="relative z-10 flex items-center gap-1.5">
           <TrafficButton
             color="#ff605c"
             hoverSymbol="✕"
@@ -45,19 +62,16 @@ export function Titlebar() {
           />
         </div>
 
-        {/* Centered title */}
-        <div
-          data-tauri-drag-region
-          className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none"
-        >
+        {/* Centered title — also above drag region but pointer-events-none so drag still works */}
+        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
           <span className="text-accent font-display font-700 text-sm tracking-wide">
             CONDUCTOR
           </span>
-          <span className="text-text-muted text-xs font-mono">v0.1</span>
+          <span className="text-text-muted text-xs font-mono ml-2">v0.1</span>
         </div>
 
-        {/* Right spacer to balance layout */}
-        <div className="w-[72px]" data-tauri-drag-region />
+        {/* Right spacer — balances the traffic lights visually */}
+        <div className="relative z-10 ml-auto w-[72px]" />
       </div>
 
       {showQuitConfirm && (
@@ -89,12 +103,18 @@ function TrafficButton({
 
   return (
     <button
-      onClick={onClick}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       title={title}
-      className="w-3 h-3 rounded-full flex items-center justify-center transition-all active:brightness-75"
-      style={{ background: color, filter: hovered ? "brightness(0.85)" : undefined }}
+      className="w-3 h-3 rounded-full flex items-center justify-center transition-all active:scale-90"
+      style={{
+        background: color,
+        filter: hovered ? "brightness(0.82)" : undefined,
+      }}
     >
       {hovered && (
         <span
@@ -140,7 +160,7 @@ function QuitConfirmDialog({
             Cancel
           </button>
           <button
-            className={clsx("btn-primary")}
+            className="btn-primary"
             style={{ background: "#ff605c", borderColor: "#ff605c" }}
             onClick={onConfirm}
           >
