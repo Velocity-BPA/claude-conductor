@@ -39,6 +39,8 @@ pub fn run() {
             commands::detect_claude_path,
             commands::read_host_claude_config,
             commands::force_quit,
+            commands::minimize_window,
+            commands::hide_window,
         ])
         .setup(|app| {
             setup_tray(app.handle())?;
@@ -74,12 +76,10 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 if let Some(win) = app.get_webview_window("main") {
                     let _ = win.show();
                     let _ = win.set_focus();
-                    // Emit event so frontend can show quit confirm if needed
                 }
             }
             "quit" => {
-                // Tray quit bypasses confirm — direct exit
-                app.exit(0);
+                std::process::exit(0);
             }
             id if id.starts_with("launch:") => {
                 let profile_id = id.strip_prefix("launch:").unwrap_or("").to_string();
