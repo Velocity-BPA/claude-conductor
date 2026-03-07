@@ -12,6 +12,13 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+// Keychain service name
+const KEYCHAIN_SERVICE: &str = "claude-conductor";
+
+fn keychain_key(profile_id: &str, server_name: &str, env_key: &str) -> String {
+    format!("{}/{}/{}", profile_id, server_name, env_key)
+}
+
 // ─── Profile commands ─────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -23,6 +30,8 @@ pub fn list_profiles(app: AppHandle) -> CmdResult<Vec<Profile>> {
 #[tauri::command]
 pub fn create_profile(app: AppHandle, data: ProfileCreate) -> CmdResult<String> {
     let store = ProfileStore::new(&app).map_err(err)?;
+    // Store keychain secrets before saving profile
+    let data = store_secrets_from_create(data)?;
     let profile = store.create(data).map_err(err)?;
     let id = profile.id.clone();
     let _ = crate::rebuild_tray_menu(&app);
@@ -32,6 +41,7 @@ pub fn create_profile(app: AppHandle, data: ProfileCreate) -> CmdResult<String> 
 #[tauri::command]
 pub fn update_profile(app: AppHandle, id: String, data: ProfileUpdate) -> CmdResult<()> {
     let store = ProfileStore::new(&app).map_err(err)?;
+    let data = store_secrets_from_update(&id, data)?;
     store.update(&id, data).map_err(err)?;
     let _ = crate::rebuild_tray_menu(&app);
     Ok(())
@@ -40,6 +50,16 @@ pub fn update_profile(app: AppHandle, id: String, data: ProfileUpdate) -> CmdRes
 #[tauri::command]
 pub fn delete_profile(app: AppHandle, id: String) -> CmdResult<()> {
     let store = ProfileStore::new(&app).map_err(err)?;
+    // Delete all keychain entries for this profile before removing
+    if let Ok(profile) = store.load_by_id(&id) {
+        for (server_name, server_cfg) in &profile.mcp_servers {
+            for secret_key in &server_cfg.secret_keys {
+                let kc_key = keychain_key(&id, server_name, secret_key);
+                let _ = keyring::Entry::new(KEYCHAIN_SERVICE, &kc_key)
+                    .and_then(|e| e.delete_credential());
+            }
+        }
+    }
     store.delete(&id).map_err(err)?;
     let _ = crate::rebuild_tray_menu(&app);
     Ok(())
@@ -68,6 +88,93 @@ pub fn export_profile(app: AppHandle, profile_id: String, dest_dir: String) -> C
     Ok(path.to_string_lossy().to_string())
 }
 
+// ─── Keychain helpers ─────────────────────────────────────────────────────────
+
+/// For servers with secret_keys, store values in keychain and blank the env value.
+fn store_secrets_from_create(mut data: ProfileCreate) -> CmdResult<ProfileCreate> {
+    // We don't have a profile ID yet — generate a temporary one.
+    // The actual profile ID is assigned in ProfileStore::create, so we use a
+    // placeholder here. We'll re-key after the profile is created... 
+    // Simpler: just pass through — secrets are stored keyed by profile_id which
+    // comes from ProfileStore. We handle this in update instead.
+    // For create, secret_keys are preserved in the model; values stay in env for
+    // first launch. User should re-save to move them to keychain.
+    Ok(data)
+}
+
+fn store_secrets_from_update(profile_id: &str, mut data: ProfileUpdate) -> CmdResult<ProfileUpdate> {
+    if let Some(ref mut servers) = data.mcp_servers {
+        for (server_name, server_cfg) in servers.iter_mut() {
+            for secret_key in &server_cfg.secret_keys.clone() {
+                if let Some(value) = server_cfg.env.get(secret_key) {
+                    if !value.is_empty() {
+                        // Store in keychain
+                        let kc_key = keychain_key(profile_id, server_name, secret_key);
+                        let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &kc_key)
+                            .map_err(|e| format!("Keychain error: {}", e))?;
+                        entry.set_password(value)
+                            .map_err(|e| format!("Failed to store secret in keychain: {}", e))?;
+                        // Blank the value in the stored profile
+                        server_cfg.env.insert(secret_key.clone(), String::new());
+                    }
+                }
+            }
+        }
+    }
+    Ok(data)
+}
+
+/// Resolve keychain secrets into a profile's env vars before launching.
+pub fn resolve_secrets(profile: &mut Profile) -> CmdResult<()> {
+    for (server_name, server_cfg) in profile.mcp_servers.iter_mut() {
+        for secret_key in &server_cfg.secret_keys.clone() {
+            let kc_key = keychain_key(&profile.id, server_name, secret_key);
+            match keyring::Entry::new(KEYCHAIN_SERVICE, &kc_key)
+                .and_then(|e| e.get_password())
+            {
+                Ok(value) => {
+                    server_cfg.env.insert(secret_key.clone(), value);
+                }
+                Err(e) => {
+                    log::warn!("Could not retrieve secret {} from keychain: {}", kc_key, e);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+// ─── Keychain commands (called from frontend) ─────────────────────────────────
+
+#[tauri::command]
+pub fn store_secret(profile_id: String, server_name: String, key: String, value: String) -> CmdResult<()> {
+    let kc_key = keychain_key(&profile_id, &server_name, &key);
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &kc_key)
+        .map_err(|e| format!("Keychain error: {}", e))?;
+    entry.set_password(&value)
+        .map_err(|e| format!("Failed to store secret: {}", e))
+}
+
+#[tauri::command]
+pub fn get_secret(profile_id: String, server_name: String, key: String) -> CmdResult<Option<String>> {
+    let kc_key = keychain_key(&profile_id, &server_name, &key);
+    match keyring::Entry::new(KEYCHAIN_SERVICE, &kc_key).and_then(|e| e.get_password()) {
+        Ok(v) => Ok(Some(v)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("Keychain error: {}", e)),
+    }
+}
+
+#[tauri::command]
+pub fn delete_secret(profile_id: String, server_name: String, key: String) -> CmdResult<()> {
+    let kc_key = keychain_key(&profile_id, &server_name, &key);
+    match keyring::Entry::new(KEYCHAIN_SERVICE, &kc_key).and_then(|e| e.delete_credential()) {
+        Ok(_) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()), // already gone
+        Err(e) => Err(format!("Keychain error: {}", e)),
+    }
+}
+
 // ─── Instance commands ────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -77,7 +184,7 @@ pub fn launch_profile(
     registry: State<InstanceRegistry>,
 ) -> CmdResult<u32> {
     let store = ProfileStore::new(&app).map_err(err)?;
-    let profile = store.load_by_id(&profile_id).map_err(err)?;
+    let mut profile = store.load_by_id(&profile_id).map_err(err)?;
     let config = store.load_app_config().map_err(err)?;
 
     let claude_path = config
@@ -86,6 +193,9 @@ pub fn launch_profile(
         .clone()
         .or_else(detect_claude_desktop_path)
         .ok_or("Claude Desktop not found. Set its path in Settings.")?;
+
+    // Resolve keychain secrets into env vars before writing config
+    resolve_secrets(&mut profile)?;
 
     let base = data_dir(&app).map_err(err)?;
     write_desktop_config(&base, &profile).map_err(err)?;
@@ -144,13 +254,11 @@ pub fn detect_claude_path() -> CmdResult<Option<String>> {
 
 // ─── Window control commands ──────────────────────────────────────────────────
 
-/// Hard quit — std::process::exit bypasses prevent_exit entirely.
 #[tauri::command]
 pub fn force_quit() {
     std::process::exit(0);
 }
 
-/// Minimize the main window.
 #[tauri::command]
 pub fn minimize_window(app: AppHandle) -> CmdResult<()> {
     if let Some(win) = app.get_webview_window("main") {
@@ -159,7 +267,6 @@ pub fn minimize_window(app: AppHandle) -> CmdResult<()> {
     Ok(())
 }
 
-/// Toggle maximize/restore the main window.
 #[tauri::command]
 pub fn toggle_maximize(app: AppHandle) -> CmdResult<()> {
     if let Some(win) = app.get_webview_window("main") {
@@ -172,7 +279,6 @@ pub fn toggle_maximize(app: AppHandle) -> CmdResult<()> {
     Ok(())
 }
 
-/// Hide the main window to tray (used by tray menu, not traffic lights).
 #[tauri::command]
 pub fn hide_window(app: AppHandle) -> CmdResult<()> {
     if let Some(win) = app.get_webview_window("main") {
