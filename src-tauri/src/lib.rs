@@ -40,6 +40,7 @@ pub fn run() {
             commands::read_host_claude_config,
             commands::force_quit,
             commands::minimize_window,
+            commands::toggle_maximize,
             commands::hide_window,
         ])
         .setup(|app| {
