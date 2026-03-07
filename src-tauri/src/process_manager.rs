@@ -44,7 +44,7 @@ impl InstanceRegistry {
 
     fn prune_dead(&self) {
         let mut sys = System::new();
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
         let mut map = self.inner.lock().unwrap();
         map.retain(|&pid, _| sys.process(Pid::from_u32(pid)).is_some());
     }
@@ -101,7 +101,7 @@ pub fn launch(
 
 pub fn kill(pid: u32, registry: &InstanceRegistry) -> Result<()> {
     let mut sys = System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
 
     if let Some(process) = sys.process(Pid::from_u32(pid)) {
         process.kill();
@@ -146,7 +146,7 @@ pub fn focus(pid: u32) -> Result<()> {
 fn find_claude_pid_by_userdata(user_data_dir: &PathBuf) -> Result<u32> {
     let ud_str = user_data_dir.to_string_lossy().to_string();
     let mut sys = System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
 
     for (pid, process) in sys.processes() {
         let name = process.name().to_string_lossy().to_lowercase();
