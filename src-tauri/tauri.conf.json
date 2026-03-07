@@ -23,9 +23,7 @@
         "fullscreen": false,
         "decorations": false,
         "transparent": false,
-        "center": true,
-        "hiddenTitle": true,
-        "titleBarStyle": "Overlay"
+        "center": true
       }
     ],
     "trayIcon": {
