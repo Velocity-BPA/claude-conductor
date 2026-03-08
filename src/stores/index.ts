@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import type {
   Profile,
   RunningInstance,
@@ -18,6 +19,7 @@ interface ProfileStore {
   modal: ModalState;
   isLoading: boolean;
   error: string | null;
+  launchingProfiles: Set<string>;
 
   loadProfiles: () => Promise<void>;
   loadInstances: () => Promise<void>;
@@ -26,8 +28,8 @@ interface ProfileStore {
   updateProfile: (id: string, data: ProfileUpdate) => Promise<void>;
   deleteProfile: (id: string) => Promise<void>;
   reorderProfiles: (orderedIds: string[]) => Promise<void>;
-  importProfile: (filePath: string) => Promise<void>;
-  exportProfile: (profileId: string, destDir: string) => Promise<void>;
+  importProfileFromDialog: () => Promise<void>;
+  exportProfileToDialog: (profileId: string) => Promise<void>;
 
   launchProfile: (profileId: string) => Promise<void>;
   killInstance: (pid: number) => Promise<void>;
@@ -46,6 +48,7 @@ export const useStore = create<ProfileStore>((set, get) => ({
   modal: { type: "none" },
   isLoading: false,
   error: null,
+  launchingProfiles: new Set(),
 
   loadProfiles: async () => {
     set({ isLoading: true, error: null });
@@ -96,22 +99,46 @@ export const useStore = create<ProfileStore>((set, get) => ({
     await get().loadProfiles();
   },
 
-  importProfile: async (filePath: string) => {
-    await invoke("import_profile", { filePath });
+  importProfileFromDialog: async () => {
+    const filePath = await open({
+      title: "Import Profile",
+      filters: [{ name: "Claude Conductor Profile", extensions: ["json"] }],
+      multiple: false,
+    });
+    if (!filePath) return;
+    await invoke("import_profile", { filePath: filePath as string });
     await get().loadProfiles();
   },
 
-  exportProfile: async (profileId: string, destDir: string) => {
-    await invoke("export_profile", { profileId, destDir });
+  exportProfileToDialog: async (profileId: string) => {
+    const profile = get().profiles.find((p) => p.id === profileId);
+    const defaultName = profile ? `${profile.name.replace(/[^a-z0-9]/gi, "_")}.json` : "profile.json";
+    const filePath = await save({
+      title: "Export Profile",
+      defaultPath: defaultName,
+      filters: [{ name: "Claude Conductor Profile", extensions: ["json"] }],
+    });
+    if (!filePath) return;
+    const dir = filePath.substring(0, filePath.lastIndexOf("/"));
+    await invoke("export_profile", { profileId, destDir: dir });
   },
 
   launchProfile: async (profileId: string) => {
-    set({ error: null });
+    set((s) => ({
+      error: null,
+      launchingProfiles: new Set([...s.launchingProfiles, profileId]),
+    }));
     try {
       await invoke("launch_profile", { profileId });
       setTimeout(() => get().loadInstances(), 800);
     } catch (e) {
       set({ error: `Failed to launch: ${String(e)}` });
+    } finally {
+      set((s) => {
+        const next = new Set(s.launchingProfiles);
+        next.delete(profileId);
+        return { launchingProfiles: next };
+      });
     }
   },
 
@@ -129,11 +156,11 @@ export const useStore = create<ProfileStore>((set, get) => ({
   clearError: () => set({ error: null }),
 }));
 
-export const selectRunningProfileIds = (store: ProfileStore): Set<string> =>
+export const selectRunningProfileIds = (store: { instances: RunningInstance[] }): Set<string> =>
   new Set(store.instances.map((i) => i.profileId));
 
 export const selectInstanceForProfile = (
-  store: ProfileStore,
+  store: { instances: RunningInstance[] },
   profileId: string
 ): RunningInstance | undefined =>
   store.instances.find((i) => i.profileId === profileId);
