@@ -77,6 +77,7 @@ interface McpDraft {
   command: string;
   args: string;
   env: string;
+  secretKeys: string[];
 }
 
 function toMcpDraft(name: string, cfg: McpServerConfig): McpDraft {
@@ -88,6 +89,7 @@ function toMcpDraft(name: string, cfg: McpServerConfig): McpDraft {
     env: Object.entries(cfg.env ?? {})
       .map(([k, v]) => `${k}=${v}`)
       .join("\n"),
+    secretKeys: cfg.secretKeys ?? [],
   };
 }
 
@@ -104,8 +106,31 @@ function fromMcpDraft(d: McpDraft): [string, McpServerConfig] | null {
       command: d.command.trim(),
       args: d.args.split(",").map((a) => a.trim()).filter(Boolean),
       env,
+      secretKeys: d.secretKeys,
     },
   ];
+}
+
+// Convert McpDraft[] to/from JSON string for raw editor
+function draftsToJson(drafts: McpDraft[]): string {
+  const obj: Record<string, McpServerConfig> = {};
+  for (const d of drafts) {
+    const parsed = fromMcpDraft(d);
+    if (parsed) obj[parsed[0]] = parsed[1];
+  }
+  return JSON.stringify(obj, null, 2);
+}
+
+function jsonToDrafts(json: string): McpDraft[] | null {
+  try {
+    const parsed = JSON.parse(json);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return Object.entries(parsed as Record<string, McpServerConfig>).map(([k, v]) =>
+      toMcpDraft(k, v)
+    );
+  } catch {
+    return null;
+  }
 }
 
 // ─── Profile Form Modal ───────────────────────────────────────────────────────
@@ -124,6 +149,7 @@ interface ProfileFormModalProps {
 }
 
 type ModalView = "form" | "import-picker" | "import-error";
+type McpEditorMode = "form" | "json";
 
 function ProfileFormModal({ initial, onClose, onSave }: ProfileFormModalProps) {
   const [name, setName]               = useState(initial?.name ?? "");
@@ -137,6 +163,11 @@ function ProfileFormModal({ initial, onClose, onSave }: ProfileFormModalProps) {
   );
   const [saving, setSaving] = useState(false);
 
+  // MCP editor mode: form vs raw JSON
+  const [mcpEditorMode, setMcpEditorMode] = useState<McpEditorMode>("form");
+  const [jsonText, setJsonText]           = useState("");
+  const [jsonError, setJsonError]         = useState("");
+
   // Import state
   const [view, setView]                     = useState<ModalView>("form");
   const [importLoading, setImportLoading]   = useState(false);
@@ -144,13 +175,29 @@ function ProfileFormModal({ initial, onClose, onSave }: ProfileFormModalProps) {
   const [importCandidates, setImportCandidates] = useState<Record<string, McpServerConfig>>({});
   const [importSelected, setImportSelected] = useState<Set<string>>(new Set());
 
+  const switchToJson = () => {
+    setJsonText(draftsToJson(mcpServers));
+    setJsonError("");
+    setMcpEditorMode("json");
+  };
+
+  const switchToForm = () => {
+    const parsed = jsonToDrafts(jsonText);
+    if (!parsed) {
+      setJsonError("Invalid JSON — fix errors before switching back to form view.");
+      return;
+    }
+    setMcpServers(parsed);
+    setJsonError("");
+    setMcpEditorMode("form");
+  };
+
   const handleImportFromClaude = async () => {
     setImportLoading(true);
     setImportError("");
     try {
       const raw = await invoke<unknown>("read_host_claude_config");
 
-      // Validate the response is a non-null object
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
         throw new Error("Unexpected response format from Claude Desktop config.");
       }
@@ -171,7 +218,6 @@ function ProfileFormModal({ initial, onClose, onSave }: ProfileFormModalProps) {
       else if (e instanceof Error) msg = e.message;
       else if (e && typeof e === "object" && "message" in e) msg = String((e as any).message);
 
-      // Make common errors more human-friendly
       if (msg.includes("not found") || msg.includes("No such file")) {
         msg = "Claude Desktop config file not found.\n\nExpected location:\n~/Library/Application Support/Claude/claude_desktop_config.json\n\nMake sure Claude Desktop is installed.";
       } else if (msg.includes("permission") || msg.includes("Permission")) {
@@ -206,17 +252,36 @@ function ProfileFormModal({ initial, onClose, onSave }: ProfileFormModalProps) {
   const addServer = () =>
     setMcpServers((prev) => [
       ...prev,
-      { _id: nanoid(6), name: "", command: "npx", args: "", env: "" },
+      { _id: nanoid(6), name: "", command: "npx", args: "", env: "", secretKeys: [] },
     ]);
 
   const removeServer = (id: string) =>
     setMcpServers((prev) => prev.filter((s) => s._id !== id));
 
-  const updateServer = (id: string, field: keyof McpDraft, value: string) =>
+  const updateServer = (id: string, field: keyof McpDraft, value: string | string[]) =>
     setMcpServers((prev) => prev.map((s) => (s._id === id ? { ...s, [field]: value } : s)));
 
   const handleSave = async () => {
     if (!name.trim()) return;
+
+    // If in JSON mode, apply the JSON first
+    if (mcpEditorMode === "json") {
+      const parsed = jsonToDrafts(jsonText);
+      if (!parsed) {
+        setJsonError("Fix JSON errors before saving.");
+        return;
+      }
+      setSaving(true);
+      const servers: Record<string, McpServerConfig> = {};
+      for (const draft of parsed) {
+        const p = fromMcpDraft(draft);
+        if (p) servers[p[0]] = p[1];
+      }
+      await onSave({ name: name.trim(), icon, color, description: description.trim(), mcpServers: servers });
+      setSaving(false);
+      return;
+    }
+
     setSaving(true);
     const servers: Record<string, McpServerConfig> = {};
     for (const draft of mcpServers) {
@@ -268,6 +333,7 @@ function ProfileFormModal({ initial, onClose, onSave }: ProfileFormModalProps) {
               const cfg = importCandidates[key];
               const isSelected = importSelected.has(key);
               const isExisting = existing.has(key);
+              const hasEnv = Object.keys(cfg.env ?? {}).length > 0;
               return (
                 <button
                   key={key}
@@ -303,7 +369,7 @@ function ProfileFormModal({ initial, onClose, onSave }: ProfileFormModalProps) {
                     <div className="text-xs text-text-muted font-mono truncate mt-0.5">
                       {cfg.command} {cfg.args.slice(0, 2).join(" ")}{cfg.args.length > 2 ? " …" : ""}
                     </div>
-                    {Object.keys(cfg.env ?? {}).length > 0 && (
+                    {hasEnv && (
                       <div className="text-[11px] text-text-muted mt-0.5">
                         🔑 {Object.keys(cfg.env).join(", ")}
                       </div>
@@ -452,28 +518,66 @@ function ProfileFormModal({ initial, onClose, onSave }: ProfileFormModalProps) {
                     : <><span>⬇</span><span>Import from Claude Desktop</span></>}
                 </button>
                 <span className="text-bg-border text-xs">|</span>
+                <button
+                  onClick={mcpEditorMode === "form" ? switchToJson : switchToForm}
+                  className={clsx(
+                    "btn-ghost text-xs px-2 py-1",
+                    mcpEditorMode === "json" && "text-accent"
+                  )}
+                  title={mcpEditorMode === "form" ? "Switch to raw JSON editor" : "Switch to form editor"}
+                >
+                  {mcpEditorMode === "form" ? "{ } JSON" : "≡ Form"}
+                </button>
+                <span className="text-bg-border text-xs">|</span>
                 <button onClick={addServer} className="btn-ghost text-xs px-2 py-1">
                   + Add server
                 </button>
               </div>
             </div>
 
-            {mcpServers.length === 0 && (
-              <div className="text-xs text-text-muted py-4 text-center bg-bg-base border border-bg-border border-dashed rounded-[6px]">
-                No MCP servers — Claude Desktop will launch without any tools
-              </div>
-            )}
-
-            <div className="space-y-3">
-              {mcpServers.map((srv) => (
-                <McpServerRow
-                  key={srv._id}
-                  draft={srv}
-                  onChange={(field, value) => updateServer(srv._id, field, value)}
-                  onRemove={() => removeServer(srv._id)}
+            {mcpEditorMode === "json" ? (
+              <div className="space-y-1.5">
+                <textarea
+                  className={clsx(
+                    "input font-mono text-xs resize-none w-full",
+                    jsonError && "border-status-error/50 focus:border-status-error"
+                  )}
+                  rows={12}
+                  value={jsonText}
+                  onChange={(e) => {
+                    setJsonText(e.target.value);
+                    setJsonError("");
+                  }}
+                  spellCheck={false}
+                  placeholder={'{\n  "my-server": {\n    "command": "npx",\n    "args": ["-y", "@pkg/server"],\n    "env": {}\n  }\n}'}
                 />
-              ))}
-            </div>
+                {jsonError && (
+                  <p className="text-xs text-status-error">{jsonError}</p>
+                )}
+                <p className="text-[11px] text-text-muted">
+                  Edit raw MCP server JSON. Click <strong>≡ Form</strong> to validate and return to form view.
+                </p>
+              </div>
+            ) : (
+              <>
+                {mcpServers.length === 0 && (
+                  <div className="text-xs text-text-muted py-4 text-center bg-bg-base border border-bg-border border-dashed rounded-[6px]">
+                    No MCP servers — Claude Desktop will launch without any tools
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  {mcpServers.map((srv) => (
+                    <McpServerRow
+                      key={srv._id}
+                      draft={srv}
+                      onChange={(field, value) => updateServer(srv._id, field, value)}
+                      onRemove={() => removeServer(srv._id)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -496,12 +600,28 @@ function ProfileFormModal({ initial, onClose, onSave }: ProfileFormModalProps) {
 
 interface McpServerRowProps {
   draft: McpDraft;
-  onChange: (field: keyof McpDraft, value: string) => void;
+  onChange: (field: keyof McpDraft, value: string | string[]) => void;
   onRemove: () => void;
 }
 
 function McpServerRow({ draft, onChange, onRemove }: McpServerRowProps) {
   const [expanded, setExpanded] = useState(!draft.name);
+
+  const envKeys = draft.env
+    .split("\n")
+    .map((line) => {
+      const idx = line.indexOf("=");
+      return idx > 0 ? line.slice(0, idx).trim() : "";
+    })
+    .filter(Boolean);
+
+  const toggleSecret = (key: string) => {
+    const current = draft.secretKeys ?? [];
+    const next = current.includes(key)
+      ? current.filter((k) => k !== key)
+      : [...current, key];
+    onChange("secretKeys", next);
+  };
 
   return (
     <div className="bg-bg-base border border-bg-border rounded-[6px] overflow-hidden">
@@ -513,6 +633,11 @@ function McpServerRow({ draft, onChange, onRemove }: McpServerRowProps) {
           </span>
           {draft.command && (
             <span className="text-text-muted text-xs font-mono truncate">{draft.command}</span>
+          )}
+          {draft.secretKeys && draft.secretKeys.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-medium shrink-0">
+              🔑 {draft.secretKeys.length} secret{draft.secretKeys.length !== 1 ? "s" : ""}
+            </span>
           )}
         </button>
         <button onClick={onRemove} className="text-text-muted hover:text-status-error text-lg leading-none">×</button>
@@ -544,6 +669,40 @@ function McpServerRow({ draft, onChange, onRemove }: McpServerRowProps) {
               placeholder={"GITHUB_TOKEN=ghp_xxx\nAPI_KEY=sk-..."}
               value={draft.env} onChange={(e) => onChange("env", e.target.value)} />
           </div>
+
+          {envKeys.length > 0 && (
+            <div>
+              <label className="label flex items-center gap-1.5">
+                <span>🔑</span> Keychain secrets
+                <span className="text-text-muted font-normal">(stored securely, not in profile file)</span>
+              </label>
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {envKeys.map((key) => {
+                  const isSecret = (draft.secretKeys ?? []).includes(key);
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => toggleSecret(key)}
+                      className={clsx(
+                        "text-xs px-2 py-1 rounded-[4px] border font-mono transition-all",
+                        isSecret
+                          ? "bg-amber-500/15 border-amber-500/40 text-amber-400"
+                          : "bg-bg-elevated border-bg-border text-text-muted hover:border-bg-hover"
+                      )}
+                      title={isSecret ? `${key} will be stored in macOS Keychain` : `Click to mark ${key} as a keychain secret`}
+                    >
+                      {isSecret ? "🔒 " : "🔓 "}{key}
+                    </button>
+                  );
+                })}
+              </div>
+              {(draft.secretKeys ?? []).length > 0 && (
+                <p className="text-[11px] text-text-muted mt-1.5">
+                  Marked keys will be stored in the system keychain on save. The profile file will store empty placeholders.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
