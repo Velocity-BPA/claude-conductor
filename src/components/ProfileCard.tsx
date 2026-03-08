@@ -8,10 +8,13 @@ interface ProfileCardProps {
 }
 
 export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
-  const { launchProfile, killInstance, setModal, exportProfileToDialog } = useStore();
+  const { launchProfile, killInstance, focusInstance, setModal, exportProfileToDialog } = useStore();
   const instance = useStore((s) => selectInstanceForProfile(s, profile.id));
   const isLaunching = useStore((s) => s.launchingProfiles.has(profile.id));
   const mcpCount = Object.keys(profile.mcpServers).length;
+
+  // Disable launch if already running or in the process of launching
+  const launchDisabled = isRunning || isLaunching;
 
   return (
     <div
@@ -62,6 +65,7 @@ export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
         </div>
       </div>
 
+      {/* Hover actions */}
       <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
         <button
           onClick={() => setModal({ type: "edit", profileId: profile.id })}
@@ -86,22 +90,32 @@ export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
         </button>
       </div>
 
-      <div className="shrink-0">
+      {/* Primary action buttons */}
+      <div className="shrink-0 flex items-center gap-1.5">
         {isRunning ? (
-          <button
-            onClick={() => instance && killInstance(instance.pid)}
-            className="btn border border-status-error/30 text-status-error hover:bg-status-error/10 active:scale-95 text-xs px-3 py-1.5"
-            title="Kill this instance"
-          >
-            Kill
-          </button>
+          <>
+            <button
+              onClick={() => instance && focusInstance(instance.pid)}
+              className="btn-ghost text-xs px-2.5 py-1.5"
+              title="Bring window to front"
+            >
+              Focus
+            </button>
+            <button
+              onClick={() => instance && killInstance(instance.pid)}
+              className="btn border border-status-error/30 text-status-error hover:bg-status-error/10 active:scale-95 text-xs px-3 py-1.5"
+              title="Kill this instance"
+            >
+              Kill
+            </button>
+          </>
         ) : (
           <button
-            onClick={() => !isLaunching && launchProfile(profile.id)}
-            disabled={isLaunching}
+            onClick={() => !launchDisabled && launchProfile(profile.id)}
+            disabled={launchDisabled}
             className={clsx(
               "btn border text-xs px-3 py-1.5 active:scale-95 transition-opacity",
-              isLaunching && "opacity-50 cursor-not-allowed"
+              launchDisabled && "opacity-50 cursor-not-allowed"
             )}
             style={{
               borderColor: `${profile.color}40`,
@@ -109,13 +123,13 @@ export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
               background: `${profile.color}0d`,
             }}
             onMouseEnter={(e) => {
-              if (!isLaunching)
+              if (!launchDisabled)
                 (e.currentTarget as HTMLButtonElement).style.background = `${profile.color}20`;
             }}
             onMouseLeave={(e) => {
               (e.currentTarget as HTMLButtonElement).style.background = `${profile.color}0d`;
             }}
-            title={isLaunching ? "Launching…" : "Launch this profile"}
+            title={isLaunching ? "Launching…" : isRunning ? "Already running" : "Launch this profile"}
           >
             {isLaunching ? (
               <span className="flex items-center gap-1.5">
