@@ -51,7 +51,10 @@ impl InstanceRegistry {
         let mut sys = System::new();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
         let mut map = self.inner.lock().unwrap();
-        map.retain(|&pid, _| sys.process(Pid::from_u32(pid)).is_some());
+        map.retain(|&pid, _| {
+            // Always keep sentinel pid=1 entries — they represent untracked launches
+            pid == 1 || sys.process(Pid::from_u32(pid)).is_some()
+        });
     }
 }
 
@@ -64,6 +67,7 @@ pub fn launch(
     registry: &InstanceRegistry,
 ) -> Result<u32> {
     let (program, args) = build_launch_command(claude_path, user_data_dir)?;
+    let ud_str = user_data_dir.to_string_lossy().to_string();
 
     log::info!("Launching Claude Desktop: {} {:?}", program, args);
 
@@ -96,6 +100,7 @@ pub fn launch(
             profile_id: profile_id.to_string(),
             pid,
             launched_at: Utc::now(),
+            user_data_dir: ud_str,
         };
         registry.register(instance);
         Ok(pid)
@@ -112,6 +117,7 @@ pub fn launch(
             profile_id: profile_id.to_string(),
             pid,
             launched_at: Utc::now(),
+            user_data_dir: ud_str,
         };
         registry.register(instance);
         Ok(pid)
@@ -121,50 +127,49 @@ pub fn launch(
 // ─── Kill ─────────────────────────────────────────────────────────────────────
 
 pub fn kill(pid: u32, registry: &InstanceRegistry) -> Result<()> {
-    // pid=1 is our sentinel for "launched but untracked"
-    if pid == 1 {
-        registry.unregister(pid);
-        return Ok(());
-    }
+    // Look up the stored user_data_dir for this instance
+    let user_data_dir = registry
+        .get_by_pid(pid)
+        .map(|i| i.user_data_dir)
+        .unwrap_or_default();
+
+    registry.unregister(pid);
 
     #[cfg(target_os = "macos")]
     {
-        // Claude Desktop is an Electron app — it spawns many processes sharing
-        // the same user data dir argument. Killing just the tracked PID often
-        // leaves the app running. Instead, look up the user data dir for this
-        // instance and use pkill -f to terminate all matching processes.
-        let user_data_dir = {
-            let mut sys = System::new();
-            sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
-            sys.process(Pid::from_u32(pid))
-                .and_then(|p| {
-                    p.cmd()
-                        .iter()
-                        .find(|arg| {
-                            let s = arg.to_string_lossy();
-                            s.contains("claude-conductor") && s.contains("userdata")
-                        })
-                        .map(|s| s.to_string_lossy().to_string())
-                })
-        };
-
-        if let Some(ud) = user_data_dir {
-            // Kill all processes with this user data dir in their args
-            let _ = Command::new("pkill")
-                .args(["-f", &ud])
+        if !user_data_dir.is_empty() {
+            // Use pgrep to find all PIDs whose args contain the user data dir,
+            // then kill -9 each one. This handles the full Electron process tree.
+            let pgrep = Command::new("pgrep")
+                .args(["-f", &user_data_dir])
                 .output();
-            log::info!("pkill -f '{}' for PID {}", ud, pid);
-        } else {
-            // Fallback: kill just the tracked PID directly
-            let mut sys = System::new();
-            sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
-            if let Some(process) = sys.process(Pid::from_u32(pid)) {
-                process.kill();
+
+            match pgrep {
+                Ok(output) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let pids: Vec<&str> = stdout.split_whitespace().collect();
+                    log::info!("pgrep found {} processes for userdata dir: {:?}", pids.len(), pids);
+
+                    for p in &pids {
+                        let _ = Command::new("kill").args(["-9", p]).output();
+                    }
+
+                    if pids.is_empty() {
+                        log::warn!("pgrep found no processes for '{}', falling back to direct kill", user_data_dir);
+                        let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
+                    }
+                }
+                Err(e) => {
+                    log::warn!("pgrep failed: {}, falling back to direct kill", e);
+                    let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
+                }
             }
-            log::info!("Killed process PID {} (direct)", pid);
+        } else {
+            // No user_data_dir stored (sentinel or old entry) — kill PID directly
+            log::info!("No user_data_dir for PID {}, killing directly", pid);
+            let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
         }
 
-        registry.unregister(pid);
         Ok(())
     }
 
@@ -172,16 +177,11 @@ pub fn kill(pid: u32, registry: &InstanceRegistry) -> Result<()> {
     {
         let mut sys = System::new();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
-
         if let Some(process) = sys.process(Pid::from_u32(pid)) {
             process.kill();
-            registry.unregister(pid);
             log::info!("Killed process PID {}", pid);
-            Ok(())
-        } else {
-            registry.unregister(pid);
-            Err(anyhow!("Process {} not found", pid))
         }
+        Ok(())
     }
 }
 
