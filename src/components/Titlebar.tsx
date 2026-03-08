@@ -1,16 +1,23 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export function Titlebar() {
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
 
+  const startDrag = (e: React.MouseEvent) => {
+    // Only drag on primary mouse button, and not if a button was the target
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    getCurrentWindow().startDragging();
+  };
+
   return (
     <>
-      {/* data-tauri-drag-region on the outer bar — buttons cancel it with stopPropagation */}
       <div
-        data-tauri-drag-region
         className="flex items-center h-10 px-4 bg-bg-surface border-b border-bg-border shrink-0 select-none"
         style={{ minHeight: 40 }}
+        onMouseDown={startDrag}
       >
         {/* Traffic lights */}
         <div className="flex items-center gap-1.5">
@@ -34,7 +41,7 @@ export function Titlebar() {
           />
         </div>
 
-        {/* Centered title — pointer-events-none so drag region behind it stays active */}
+        {/* Centered title */}
         <div className="absolute left-0 right-0 flex items-center justify-center pointer-events-none h-10">
           <span className="text-accent font-display font-700 text-sm tracking-wide">
             CONDUCTOR
@@ -42,8 +49,8 @@ export function Titlebar() {
           <span className="text-text-muted text-xs font-mono ml-2">v0.1</span>
         </div>
 
-        {/* Right spacer — pointer-events-none so it doesn't block dragging */}
-        <div className="ml-auto w-[60px] pointer-events-none" />
+        {/* Right spacer */}
+        <div className="ml-auto w-[60px]" />
       </div>
 
       {showQuitConfirm && (
