@@ -38,9 +38,10 @@ log = "0.4"
 sysinfo = "0.31"
 
 # Secure credential storage
-# keyring v2: macOS Keychain + Windows Credential Store are built-in by default.
-# Only Linux requires an explicit feature flag for Secret Service.
-keyring = { version = "2", features = ["sync-secret-service"] }
+# keyring v2 uses macOS Keychain / Windows Credential Store by default.
+# No feature flags needed on macOS or Windows.
+# For Linux, add one of the linux-secret-service-* features as needed.
+keyring = "2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
