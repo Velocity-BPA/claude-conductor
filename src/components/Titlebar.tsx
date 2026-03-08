@@ -1,36 +1,31 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { clsx } from "clsx";
 
 export function Titlebar() {
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
 
   return (
     <>
+      {/* data-tauri-drag-region on the outer bar — buttons cancel it with stopPropagation */}
       <div
-        className="relative flex items-center h-10 px-4 bg-bg-surface border-b border-bg-border shrink-0 select-none"
+        data-tauri-drag-region
+        className="flex items-center h-10 px-4 bg-bg-surface border-b border-bg-border shrink-0 select-none"
         style={{ minHeight: 40 }}
       >
-        {/* Absolute drag region sits at z-0 behind everything */}
-        <div data-tauri-drag-region className="absolute inset-0 z-0" />
-
-        {/* Traffic lights at z-10 — above the drag region */}
-        <div className="relative z-10 flex items-center gap-1.5">
-          {/* Red — Quit */}
+        {/* Traffic lights */}
+        <div className="flex items-center gap-1.5">
           <TrafficButton
             color="#ff605c"
             symbol="✕"
             title="Quit Conductor"
             onClick={() => setShowQuitConfirm(true)}
           />
-          {/* Yellow — Minimize */}
           <TrafficButton
             color="#f6be00"
             symbol="−"
             title="Minimize"
             onClick={() => invoke("minimize_window")}
           />
-          {/* Green — Maximize / Restore */}
           <TrafficButton
             color="#00ca4e"
             symbol="⤢"
@@ -39,16 +34,16 @@ export function Titlebar() {
           />
         </div>
 
-        {/* Centered title — pointer-events-none so drag works behind it */}
-        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+        {/* Centered title — pointer-events-none so drag region behind it stays active */}
+        <div className="absolute left-0 right-0 flex items-center justify-center pointer-events-none h-10">
           <span className="text-accent font-display font-700 text-sm tracking-wide">
             CONDUCTOR
           </span>
           <span className="text-text-muted text-xs font-mono ml-2">v0.1</span>
         </div>
 
-        {/* Right spacer */}
-        <div className="relative z-10 ml-auto w-[60px]" />
+        {/* Right spacer — pointer-events-none so it doesn't block dragging */}
+        <div className="ml-auto w-[60px] pointer-events-none" />
       </div>
 
       {showQuitConfirm && (
