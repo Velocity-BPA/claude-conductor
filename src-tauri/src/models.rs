@@ -11,7 +11,6 @@ pub struct McpServerConfig {
     #[serde(default)]
     pub env: HashMap<String, String>,
     /// Keys in `env` whose values are stored in the system keychain.
-    /// The stored value in `env` for these keys is an empty string sentinel.
     #[serde(default)]
     pub secret_keys: Vec<String>,
 }
@@ -115,6 +114,9 @@ pub struct RunningInstance {
     pub profile_id: String,
     pub pid: u32,
     pub launched_at: DateTime<Utc>,
+    /// The --user-data-dir path passed to this Claude instance.
+    /// Stored at launch so kill can reliably target all related processes.
+    pub user_data_dir: String,
 }
 
 // ─── App Config ───────────────────────────────────────────────────────────────
