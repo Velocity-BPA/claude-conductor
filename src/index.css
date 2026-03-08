@@ -59,6 +59,10 @@ input, textarea, [data-selectable] {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium
            bg-status-running/15 text-status-running;
   }
+  .badge-launching {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium
+           bg-amber-500/15 text-amber-400;
+  }
   .divider { @apply border-t border-bg-border; }
   .drag-region { -webkit-app-region: drag; }
   .no-drag { -webkit-app-region: no-drag; }
@@ -72,6 +76,15 @@ input, textarea, [data-selectable] {
   animation: pulse-dot 2.5s ease-in-out infinite;
 }
 .status-dot.stopped { background: #4d5663; }
+.status-dot.launching {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25);
+  animation: pulse-dot-amber 1s ease-in-out infinite;
+}
+@keyframes pulse-dot-amber {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25); }
+  50%       { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.08); }
+}
 @keyframes pulse-dot {
   0%, 100% { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25); }
   50%       { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.08); }
