@@ -8,8 +8,9 @@ interface ProfileCardProps {
 }
 
 export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
-  const { launchProfile, killInstance, setModal } = useStore();
+  const { launchProfile, killInstance, setModal, exportProfileToDialog } = useStore();
   const instance = useStore((s) => selectInstanceForProfile(s, profile.id));
+  const isLaunching = useStore((s) => s.launchingProfiles.has(profile.id));
   const mcpCount = Object.keys(profile.mcpServers).length;
 
   return (
@@ -27,7 +28,7 @@ export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
         <span
           className={clsx(
             "status-dot absolute -bottom-0.5 -right-0.5",
-            isRunning ? "running" : "stopped"
+            isLaunching ? "launching" : isRunning ? "running" : "stopped"
           )}
         />
       </div>
@@ -37,7 +38,13 @@ export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
           <span className="font-medium text-text-primary text-sm truncate">
             {profile.name}
           </span>
-          {isRunning && (
+          {isLaunching && (
+            <span className="badge-launching shrink-0">
+              <span className="inline-block animate-spin text-[10px]">⟳</span>
+              launching…
+            </span>
+          )}
+          {isRunning && !isLaunching && (
             <span className="badge-running shrink-0">
               <span className="status-dot running" />
               running
@@ -64,6 +71,13 @@ export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
           Edit
         </button>
         <button
+          onClick={() => exportProfileToDialog(profile.id)}
+          className="btn-ghost text-xs px-2 py-1"
+          title="Export profile to file"
+        >
+          Export
+        </button>
+        <button
           onClick={() => setModal({ type: "delete", profileId: profile.id })}
           className="btn-ghost text-xs px-2 py-1 hover:text-status-error"
           title="Delete profile"
@@ -83,22 +97,34 @@ export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
           </button>
         ) : (
           <button
-            onClick={() => launchProfile(profile.id)}
-            className="btn border text-xs px-3 py-1.5 active:scale-95"
+            onClick={() => !isLaunching && launchProfile(profile.id)}
+            disabled={isLaunching}
+            className={clsx(
+              "btn border text-xs px-3 py-1.5 active:scale-95 transition-opacity",
+              isLaunching && "opacity-50 cursor-not-allowed"
+            )}
             style={{
               borderColor: `${profile.color}40`,
               color: profile.color,
               background: `${profile.color}0d`,
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = `${profile.color}20`;
+              if (!isLaunching)
+                (e.currentTarget as HTMLButtonElement).style.background = `${profile.color}20`;
             }}
             onMouseLeave={(e) => {
               (e.currentTarget as HTMLButtonElement).style.background = `${profile.color}0d`;
             }}
-            title="Launch this profile"
+            title={isLaunching ? "Launching…" : "Launch this profile"}
           >
-            ▶ Launch
+            {isLaunching ? (
+              <span className="flex items-center gap-1.5">
+                <span className="animate-spin inline-block">⟳</span>
+                Launching…
+              </span>
+            ) : (
+              "▶ Launch"
+            )}
           </button>
         )}
       </div>
