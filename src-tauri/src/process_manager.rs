@@ -42,6 +42,11 @@ impl InstanceRegistry {
         self.list().iter().map(|i| i.profile_id.clone()).collect()
     }
 
+    pub fn get_by_pid(&self, pid: u32) -> Option<RunningInstance> {
+        let map = self.inner.lock().unwrap();
+        map.get(&pid).cloned()
+    }
+
     fn prune_dead(&self) {
         let mut sys = System::new();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
@@ -71,13 +76,8 @@ pub fn launch(
         drop(child);
 
         // Retry PID search up to 8 times with 750ms gaps (6s total).
-        // Claude Desktop is an Electron app — it spawns helper processes
-        // and the main renderer process can take a few seconds to appear.
         let pid = find_claude_pid_with_retry(user_data_dir, 8, 750);
 
-        // If we still can't find the PID, Claude launched fine but we can't
-        // track it. Use pid=1 as a sentinel — the registry will prune it
-        // automatically on next poll since pid 1 (launchd) is never Claude.
         let pid = match pid {
             Some(p) => {
                 log::info!("Found Claude process PID {}", p);
@@ -88,7 +88,6 @@ pub fn launch(
                     "Claude launched but PID not found for userdata dir {}. Using sentinel.",
                     user_data_dir.display()
                 );
-                // Return success — window is open, we just can't track it precisely
                 1
             }
         };
@@ -122,23 +121,67 @@ pub fn launch(
 // ─── Kill ─────────────────────────────────────────────────────────────────────
 
 pub fn kill(pid: u32, registry: &InstanceRegistry) -> Result<()> {
-    // pid=1 is our sentinel for "launched but untracked" — just unregister
+    // pid=1 is our sentinel for "launched but untracked"
     if pid == 1 {
         registry.unregister(pid);
         return Ok(());
     }
 
-    let mut sys = System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
+    #[cfg(target_os = "macos")]
+    {
+        // Claude Desktop is an Electron app — it spawns many processes sharing
+        // the same user data dir argument. Killing just the tracked PID often
+        // leaves the app running. Instead, look up the user data dir for this
+        // instance and use pkill -f to terminate all matching processes.
+        let user_data_dir = {
+            let mut sys = System::new();
+            sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
+            sys.process(Pid::from_u32(pid))
+                .and_then(|p| {
+                    p.cmd()
+                        .iter()
+                        .find(|arg| {
+                            let s = arg.to_string_lossy();
+                            s.contains("claude-conductor") && s.contains("userdata")
+                        })
+                        .map(|s| s.to_string_lossy().to_string())
+                })
+        };
 
-    if let Some(process) = sys.process(Pid::from_u32(pid)) {
-        process.kill();
+        if let Some(ud) = user_data_dir {
+            // Kill all processes with this user data dir in their args
+            let _ = Command::new("pkill")
+                .args(["-f", &ud])
+                .output();
+            log::info!("pkill -f '{}' for PID {}", ud, pid);
+        } else {
+            // Fallback: kill just the tracked PID directly
+            let mut sys = System::new();
+            sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
+            if let Some(process) = sys.process(Pid::from_u32(pid)) {
+                process.kill();
+            }
+            log::info!("Killed process PID {} (direct)", pid);
+        }
+
         registry.unregister(pid);
-        log::info!("Killed process PID {}", pid);
         Ok(())
-    } else {
-        registry.unregister(pid);
-        Err(anyhow!("Process {} not found", pid))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut sys = System::new();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
+
+        if let Some(process) = sys.process(Pid::from_u32(pid)) {
+            process.kill();
+            registry.unregister(pid);
+            log::info!("Killed process PID {}", pid);
+            Ok(())
+        } else {
+            registry.unregister(pid);
+            Err(anyhow!("Process {} not found", pid))
+        }
     }
 }
 
@@ -147,7 +190,6 @@ pub fn kill(pid: u32, registry: &InstanceRegistry) -> Result<()> {
 pub fn focus(pid: u32) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
-        // For sentinel pid, use app name fallback
         let script = if pid == 1 {
             r#"tell application "Claude" to activate"#.to_string()
         } else {
@@ -207,7 +249,6 @@ fn scan_for_claude_pid(user_data_dir: &PathBuf) -> Option<u32> {
 
     for (pid, process) in sys.processes() {
         let name = process.name().to_string_lossy().to_lowercase();
-        // Match the main Claude process (not helpers like GPU/renderer)
         if !name.contains("claude") {
             continue;
         }
