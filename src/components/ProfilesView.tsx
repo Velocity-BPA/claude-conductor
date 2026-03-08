@@ -2,9 +2,9 @@ import { useStore, selectRunningProfileIds } from "@/stores";
 import { ProfileCard } from "./ProfileCard";
 
 export function ProfilesView() {
-  const { profiles, isLoading, setModal } = useStore();
+  const { profiles, isLoading, setModal, importProfileFromDialog } = useStore();
   const instances = useStore((s) => s.instances);
-  const runningIds = selectRunningProfileIds({ ...useStore.getState(), instances });
+  const runningIds = selectRunningProfileIds({ instances });
 
   if (isLoading && profiles.length === 0) {
     return (
@@ -29,13 +29,22 @@ export function ProfilesView() {
           </p>
         </div>
 
-        <button
-          onClick={() => setModal({ type: "create" })}
-          className="btn-primary"
-        >
-          <span className="text-base leading-none">+</span>
-          New Profile
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => importProfileFromDialog()}
+            className="btn-ghost text-xs px-3 py-1.5 flex items-center gap-1.5"
+            title="Import a profile from a .json file"
+          >
+            ⬆ Import
+          </button>
+          <button
+            onClick={() => setModal({ type: "create" })}
+            className="btn-primary"
+          >
+            <span className="text-base leading-none">+</span>
+            New Profile
+          </button>
+        </div>
       </div>
 
       {profiles.length === 0 && (
