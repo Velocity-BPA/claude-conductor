@@ -1,12 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getVersion } from "@tauri-apps/api/app";
 
 export function Titlebar() {
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+  const [version, setVersion] = useState("");
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
 
   const startDrag = (e: React.MouseEvent) => {
-    // Only drag on primary mouse button, and not if a button was the target
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button")) return;
     getCurrentWindow().startDragging();
@@ -46,7 +51,9 @@ export function Titlebar() {
           <span className="text-accent font-display font-700 text-sm tracking-wide">
             CONDUCTOR
           </span>
-          <span className="text-text-muted text-xs font-mono ml-2">v0.1</span>
+          {version && (
+            <span className="text-text-muted text-xs font-mono ml-2">v{version}</span>
+          )}
         </div>
 
         {/* Right spacer */}
