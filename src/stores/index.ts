@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { open, save, confirm } from "@tauri-apps/plugin-dialog";
 import type {
   Profile,
   RunningInstance,
@@ -143,6 +143,21 @@ export const useStore = create<ProfileStore>((set, get) => ({
   },
 
   killInstance: async (pid: number) => {
+    const { settings, instances, profiles } = get();
+
+    if (settings?.confirmBeforeKill) {
+      const instance = instances.find((i) => i.pid === pid);
+      const profile = profiles.find((p) => p.id === instance?.profileId);
+      const name = profile?.name ?? "this instance";
+      const ok = await confirm(`Kill "${name}"?`, {
+        title: "Kill Instance",
+        kind: "warning",
+        okLabel: "Kill",
+        cancelLabel: "Cancel",
+      });
+      if (!ok) return;
+    }
+
     await invoke("kill_instance", { pid });
     await get().loadInstances();
   },
