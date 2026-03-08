@@ -30,7 +30,6 @@ pub fn list_profiles(app: AppHandle) -> CmdResult<Vec<Profile>> {
 #[tauri::command]
 pub fn create_profile(app: AppHandle, data: ProfileCreate) -> CmdResult<String> {
     let store = ProfileStore::new(&app).map_err(err)?;
-    // Store keychain secrets before saving profile
     let data = store_secrets_from_create(data)?;
     let profile = store.create(data).map_err(err)?;
     let id = profile.id.clone();
@@ -56,7 +55,7 @@ pub fn delete_profile(app: AppHandle, id: String) -> CmdResult<()> {
             for secret_key in &server_cfg.secret_keys {
                 let kc_key = keychain_key(&id, server_name, secret_key);
                 let _ = keyring::Entry::new(KEYCHAIN_SERVICE, &kc_key)
-                    .and_then(|e| e.delete_credential());
+                    .and_then(|e| e.delete_password());
             }
         }
     }
@@ -90,15 +89,10 @@ pub fn export_profile(app: AppHandle, profile_id: String, dest_dir: String) -> C
 
 // ─── Keychain helpers ─────────────────────────────────────────────────────────
 
-/// For servers with secret_keys, store values in keychain and blank the env value.
-fn store_secrets_from_create(mut data: ProfileCreate) -> CmdResult<ProfileCreate> {
-    // We don't have a profile ID yet — generate a temporary one.
-    // The actual profile ID is assigned in ProfileStore::create, so we use a
-    // placeholder here. We'll re-key after the profile is created... 
-    // Simpler: just pass through — secrets are stored keyed by profile_id which
-    // comes from ProfileStore. We handle this in update instead.
-    // For create, secret_keys are preserved in the model; values stay in env for
-    // first launch. User should re-save to move them to keychain.
+/// For create, secret_keys are preserved in the model; values stay in env for
+/// first launch. The user should re-save (update) to move them to the keychain,
+/// at which point store_secrets_from_update picks them up.
+fn store_secrets_from_create(data: ProfileCreate) -> CmdResult<ProfileCreate> {
     Ok(data)
 }
 
@@ -108,13 +102,11 @@ fn store_secrets_from_update(profile_id: &str, mut data: ProfileUpdate) -> CmdRe
             for secret_key in &server_cfg.secret_keys.clone() {
                 if let Some(value) = server_cfg.env.get(secret_key) {
                     if !value.is_empty() {
-                        // Store in keychain
                         let kc_key = keychain_key(profile_id, server_name, secret_key);
                         let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &kc_key)
                             .map_err(|e| format!("Keychain error: {}", e))?;
                         entry.set_password(value)
                             .map_err(|e| format!("Failed to store secret in keychain: {}", e))?;
-                        // Blank the value in the stored profile
                         server_cfg.env.insert(secret_key.clone(), String::new());
                     }
                 }
@@ -168,9 +160,9 @@ pub fn get_secret(profile_id: String, server_name: String, key: String) -> CmdRe
 #[tauri::command]
 pub fn delete_secret(profile_id: String, server_name: String, key: String) -> CmdResult<()> {
     let kc_key = keychain_key(&profile_id, &server_name, &key);
-    match keyring::Entry::new(KEYCHAIN_SERVICE, &kc_key).and_then(|e| e.delete_credential()) {
+    match keyring::Entry::new(KEYCHAIN_SERVICE, &kc_key).and_then(|e| e.delete_password()) {
         Ok(_) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()), // already gone
+        Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("Keychain error: {}", e)),
     }
 }
@@ -194,7 +186,6 @@ pub fn launch_profile(
         .or_else(detect_claude_desktop_path)
         .ok_or("Claude Desktop not found. Set its path in Settings.")?;
 
-    // Resolve keychain secrets into env vars before writing config
     resolve_secrets(&mut profile)?;
 
     let base = data_dir(&app).map_err(err)?;
