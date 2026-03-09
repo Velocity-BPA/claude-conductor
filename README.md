@@ -1,87 +1,163 @@
-# Claude Conductor 🎼
+# Claude Conductor
 
-> Multi-profile launcher and manager for Claude Desktop
+A desktop utility for running multiple isolated [Claude Desktop](https://claude.ai/download) instances simultaneously, each with its own MCP server configuration and user profile.
 
-Claude Conductor gives you a menu bar UI to create, launch, and manage multiple isolated Claude Desktop instances — each with its own MCP server configuration.
+![Claude Conductor](src-tauri/icons/128x128.png)
 
-## What it does
+---
 
-- **Profile Manager** — Create named profiles with custom MCP server configs. Each profile stores its own `claude_desktop_config.json`.
-- **One-click Launch** — Launch any profile as an isolated Claude Desktop instance directly from the menu bar or main window.
-- **Simultaneous Instances** — Run multiple Claude Desktop instances at the same time with no conflicts. Works by passing `--user-data-dir` to each Electron instance.
-- **Instance Monitor** — See which profiles are running, their PIDs, uptime, and kill or focus them.
-- **Profile Import/Export** — Share profile configs between machines or team members.
+## Why
 
-## How isolation works
+Claude Desktop supports one active configuration at a time. If you work across multiple contexts — different sets of MCP servers for different clients, projects, or roles — switching between them means manually editing `claude_desktop_config.json` and restarting the app each time.
 
-Each profile gets its own directory under `~/Library/Application Support/ClaudeConductor/profiles/{id}/userdata/`. Claude Conductor writes a `claude_desktop_config.json` into that directory before launching, then invokes:
+Claude Conductor solves this by letting you define named profiles, each with their own MCP server setup, and launch them as fully isolated Claude Desktop instances. All instances run simultaneously with no shared state.
 
-```bash
-open -n -a /Applications/Claude.app \
-  --args --user-data-dir="$HOME/Library/Application Support/ClaudeConductor/profiles/{id}/userdata"
-```
+---
 
-The `-n` flag bypasses macOS's single-instance enforcement. The `--user-data-dir` flag gives each instance its own Electron lock, session storage, and config directory. Two instances never interfere.
+## Features
 
-## Installation
+- **Multiple isolated instances** — each profile runs Claude Desktop with its own user data directory and MCP config
+- **Profile management** — create, edit, duplicate, import, and export profiles
+- **One-click import** — reads your existing `claude_desktop_config.json` and imports servers into a new profile in seconds
+- **Keychain integration** — sensitive env vars (API keys, tokens) are stored in the macOS Keychain rather than in plain text config files
+- **Live instance monitoring** — see which profiles are running, their PID, uptime, and MCP server count
+- **Focus & Kill** — bring any running instance to the front or terminate it (kills the full Electron process tree)
+- **Confirm before kill** — optional native OS confirmation dialog before terminating an instance
+- **System tray** — lives in the menu bar with a live running instance count; launch or kill instances without opening the main window
+- **Custom app icon** — conductor-themed with amber/blue/purple instance dots
 
-### Prerequisites
+---
 
-- macOS 12+ (primary target; Windows in progress)
-- [Rust](https://rustup.rs/) 1.77+
-- [Node.js](https://nodejs.org/) 18+
-- Claude Desktop installed at `/Applications/Claude.app`
+## Requirements
 
-### Development
+- macOS 12+ (primary platform; Windows/Linux builds are possible but untested)
+- [Claude Desktop](https://claude.ai/download) installed at `/Applications/Claude.app`
+- [Node.js](https://nodejs.org) 18+
+- [Rust](https://rustup.rs) (stable toolchain)
 
-```bash
-git clone https://github.com/Velocity-BPA/claude-conductor
+---
+
+## Development
+
+```sh
+# Clone
+git clone https://github.com/Velocity-BPA/claude-conductor.git
 cd claude-conductor
+
+# Install JS dependencies
 npm install
+
+# Regenerate app icons (required after fresh clone — binary files not stored in git)
+pip3 install Pillow
+python3 scripts/generate_icons.py
+
+# Start dev server
 npm run tauri:dev
 ```
 
-### Build
+### Build for release
 
-```bash
+```sh
 npm run tauri:build
-# DMG output in: src-tauri/target/release/bundle/dmg/
 ```
 
-## Data directory
+> **Note:** `src-tauri/icons/icon.icns` is not committed to the repo (too large for the GitHub API). Run `python3 scripts/generate_icons.py` after cloning to regenerate it before building.
 
-All profile data is stored in:
+---
 
-| Platform | Path |
-|----------|------|
-| macOS    | `~/Library/Application Support/ClaudeConductor/` |
-| Windows  | `%APPDATA%\ClaudeConductor\` |
+## Project Structure
 
-Structure:
 ```
-ClaudeConductor/
-├── conductor.json          # App settings
-└── profiles/
-    ├── index.json          # Fast-access profile index (for tray menu)
-    └── {profile-id}/
-        ├── profile.json    # Profile definition + MCP server config
-        └── userdata/
-            └── claude_desktop_config.json  # Written at launch time
+claude-conductor/
+├── src/                        # React + TypeScript frontend
+│   ├── components/
+│   │   ├── Titlebar.tsx        # Traffic light window controls
+│   │   ├── ProfilesView.tsx    # Profile list + import button
+│   │   ├── ProfileCard.tsx     # Individual profile card with Launch/Focus/Kill
+│   │   ├── ProfileModal.tsx    # Create/edit modal with JSON editor + keychain UI
+│   │   ├── InstanceMonitor.tsx # Running instances view
+│   │   └── SettingsView.tsx    # App settings
+│   ├── stores/index.ts         # Zustand store — all app state and Tauri invoke calls
+│   └── types/index.ts          # Shared TypeScript types
+├── src-tauri/                  # Rust backend
+│   ├── src/
+│   │   ├── commands.rs         # All Tauri commands (profiles, keychain, window, launch)
+│   │   ├── process_manager.rs  # Launch, kill (pgrep-based), focus, PID tracking
+│   │   ├── profile_store.rs    # Profile persistence (JSON files per profile)
+│   │   ├── config_generator.rs # Writes claude_desktop_config.json per profile
+│   │   ├── app_detector.rs     # Detects Claude Desktop path, builds launch command
+│   │   ├── models.rs           # Shared data models
+│   │   └── lib.rs              # App setup, tray menu, event handlers
+│   ├── capabilities/
+│   │   └── default.json        # Tauri 2.0 capability permissions
+│   ├── icons/                  # App icons (regenerated by scripts/generate_icons.py)
+│   └── tauri.conf.json
+└── scripts/
+    └── generate_icons.py       # Generates all icon sizes using Pillow
 ```
 
-## Tech stack
+---
 
-- **[Tauri 2.0](https://tauri.app/)** — Rust backend + native WebView frontend (5 MB bundle vs 85 MB Electron)
-- **React 18 + TypeScript** — UI layer
-- **Zustand** — State management
-- **Tailwind CSS** — Styling
+## How It Works
+
+Each profile stores:
+- A name, icon, color, and description
+- A map of MCP server configurations (command, args, env vars)
+- Optional keychain-backed secrets (env var values stored in macOS Keychain, not on disk)
+
+When you launch a profile, Conductor:
+1. Resolves any keychain secrets into the env vars in memory
+2. Writes a `claude_desktop_config.json` to an isolated per-profile user data directory
+3. Launches Claude Desktop with `--user-data-dir` pointing to that directory
+4. Tracks the process using `pgrep` on the user data dir path
+
+Killing an instance runs `pgrep -f <user_data_dir>` and sends `kill -9` to every matching PID, reliably terminating the full Electron process tree.
+
+---
+
+## Profile Storage
+
+Profiles are stored at:
+
+```
+~/Library/Application Support/claude-conductor/profiles/<id>/profile.json
+```
+
+Each Claude Desktop instance gets its own user data directory at:
+
+```
+~/Library/Application Support/claude-conductor/userdata/<profile_id>/
+```
+
+---
+
+## MCP Server Secrets
+
+When editing a profile, any env var key can be marked as a secret (🔒). Marked values are stored in the **macOS Keychain** under the service name `claude-conductor` rather than in the profile JSON. The profile stores an empty string as a placeholder.
+
+On launch, secrets are resolved from the keychain into memory just before Claude Desktop starts — they are never written to disk in plaintext.
+
+---
+
+## Settings
+
+| Setting | Description |
+|---|---|
+| Confirm before kill | Show a native confirmation dialog before killing an instance |
+| Launch at login | *(coming soon)* Start Conductor automatically at login |
+| Show in Dock | *(coming soon)* Control Dock visibility |
+| Claude Desktop path | Override auto-detected Claude Desktop location |
+
+---
+
+## Known Limitations
+
+- **PID tracking is best-effort** — if Claude Desktop's process is not detected within ~6 seconds of launch, a sentinel PID is used and the instance will auto-clear from the registry on next poll
+- **Keychain secrets not stored on profile create** — secrets are moved to the keychain on the first save/edit after creation
+- **macOS only** — the kill mechanism and focus/raise logic use macOS-specific tools (`pgrep`, `osascript`). Windows/Linux builds compile but instance management features are limited
+
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
-
-## Credits
-
-Inspired by [weidwonder/claude-desktop-multi-instance](https://github.com/weidwonder/claude-desktop-multi-instance), which proved the `--user-data-dir` isolation technique works.
-
-Built by [Velocity BPA](https://github.com/Velocity-BPA).
+MIT
