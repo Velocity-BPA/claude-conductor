@@ -103,6 +103,27 @@ impl ProfileStore {
         Ok(profile)
     }
 
+    pub fn duplicate(&self, id: &str) -> Result<Profile> {
+        let source = self.load_by_id(id)?;
+        let index = self.load_index()?;
+        let now = chrono::Utc::now();
+        let mut copy = source.clone();
+        copy.id = uuid::Uuid::new_v4().to_string();
+        copy.name = format!("{} (copy)", source.name);
+        copy.sort_order = index.profiles.len() as i32;
+        copy.created_at = now;
+        copy.updated_at = now;
+        copy.last_launched_at = None;
+        // Clear secret_keys on the copy — secrets are keyed by profile ID so
+        // the copy starts with no keychain entries. User can re-mark and save.
+        for server in copy.mcp_servers.values_mut() {
+            server.secret_keys.clear();
+        }
+        self.save(&copy)?;
+        self.rebuild_index_from_profiles()?;
+        Ok(copy)
+    }
+
     pub fn update(&self, id: &str, data: ProfileUpdate) -> Result<Profile> {
         let mut profile = self.load_by_id(id)?;
         if let Some(name) = data.name { profile.name = name; }
