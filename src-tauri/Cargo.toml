@@ -19,6 +19,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-notification = "2"
@@ -38,9 +39,7 @@ log = "0.4"
 sysinfo = "0.31"
 
 # Secure credential storage
-# keyring v2 uses macOS Keychain / Windows Credential Store by default.
-# No feature flags needed on macOS or Windows.
-# For Linux, add one of the linux-secret-service-* features as needed.
+# keyring v2: macOS Keychain + Windows Credential Store are built-in by default.
 keyring = "2"
 
 [features]
