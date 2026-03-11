@@ -26,6 +26,7 @@ interface ProfileStore {
   loadSettings: () => Promise<void>;
   createProfile: (data: ProfileCreate) => Promise<string>;
   updateProfile: (id: string, data: ProfileUpdate) => Promise<void>;
+  duplicateProfile: (id: string) => Promise<void>;
   deleteProfile: (id: string) => Promise<void>;
   reorderProfiles: (orderedIds: string[]) => Promise<void>;
   importProfileFromDialog: () => Promise<void>;
@@ -34,6 +35,8 @@ interface ProfileStore {
   launchProfile: (profileId: string) => Promise<void>;
   killInstance: (pid: number) => Promise<void>;
   focusInstance: (pid: number) => Promise<void>;
+
+  setLaunchAtLogin: (enabled: boolean) => Promise<void>;
 
   setActiveView: (view: ActiveView) => void;
   setModal: (modal: ModalState) => void;
@@ -86,6 +89,11 @@ export const useStore = create<ProfileStore>((set, get) => ({
 
   updateProfile: async (id: string, data: ProfileUpdate) => {
     await invoke("update_profile", { id, data });
+    await get().loadProfiles();
+  },
+
+  duplicateProfile: async (id: string) => {
+    await invoke("duplicate_profile", { id });
     await get().loadProfiles();
   },
 
@@ -164,6 +172,11 @@ export const useStore = create<ProfileStore>((set, get) => ({
 
   focusInstance: async (pid: number) => {
     await invoke("focus_instance", { pid });
+  },
+
+  setLaunchAtLogin: async (enabled: boolean) => {
+    await invoke("set_launch_at_login", { enabled });
+    await get().loadSettings();
   },
 
   setActiveView: (view) => set({ activeView: view }),
