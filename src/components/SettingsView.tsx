@@ -1,13 +1,23 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useStore } from "@/stores";
 
 export function SettingsView() {
-  const { settings, loadSettings } = useStore();
+  const { settings, loadSettings, setLaunchAtLogin } = useStore();
   const [saving, setSaving] = useState(false);
   const [claudePath, setClaudePath] = useState(settings?.claudeDesktopPath ?? "");
   const [detectMsg, setDetectMsg] = useState<string | null>(null);
+  const [version, setVersion] = useState("");
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setClaudePath(settings?.claudeDesktopPath ?? "");
+  }, [settings?.claudeDesktopPath]);
 
   const handleDetect = async () => {
     try {
@@ -33,7 +43,7 @@ export function SettingsView() {
     if (typeof selected === "string") setClaudePath(selected);
   };
 
-  const handleSave = async () => {
+  const handleSavePath = async () => {
     setSaving(true);
     try {
       await invoke("update_settings", {
@@ -45,6 +55,17 @@ export function SettingsView() {
     }
   };
 
+  const handleToggle = async (key: "confirmBeforeKill" | "showInDock", value: boolean) => {
+    await invoke("update_settings", {
+      settings: { ...settings, [key]: value },
+    });
+    await loadSettings();
+  };
+
+  const handleLaunchAtLogin = async (value: boolean) => {
+    await setLaunchAtLogin(value);
+  };
+
   return (
     <div className="p-5 animate-fade-in max-w-lg">
       <div className="mb-5">
@@ -53,7 +74,39 @@ export function SettingsView() {
         </h1>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-4">
+
+        {/* Behaviour toggles */}
+        <section className="card p-4 space-y-3">
+          <h3 className="text-sm font-medium text-text-primary">Behaviour</h3>
+
+          <ToggleRow
+            label="Launch at login"
+            description="Start Conductor automatically when you log in"
+            checked={settings?.launchAtLogin ?? false}
+            onChange={handleLaunchAtLogin}
+          />
+
+          <div className="border-t border-bg-border" />
+
+          <ToggleRow
+            label="Confirm before killing"
+            description="Show a confirmation dialog before killing a running instance"
+            checked={settings?.confirmBeforeKill ?? true}
+            onChange={(v) => handleToggle("confirmBeforeKill", v)}
+          />
+
+          <div className="border-t border-bg-border" />
+
+          <ToggleRow
+            label="Show in Dock"
+            description="Show Conductor in the macOS Dock (requires restart)"
+            checked={settings?.showInDock ?? false}
+            onChange={(v) => handleToggle("showInDock", v)}
+          />
+        </section>
+
+        {/* Claude Desktop path */}
         <section className="card p-4 space-y-3">
           <div>
             <h3 className="text-sm font-medium text-text-primary">Claude Desktop Location</h3>
@@ -82,12 +135,13 @@ export function SettingsView() {
             <button onClick={handleDetect} className="btn-ghost text-xs">
               Auto-detect
             </button>
-            <button onClick={handleSave} disabled={saving} className="btn-primary text-xs">
+            <button onClick={handleSavePath} disabled={saving} className="btn-primary text-xs">
               {saving ? "Saving…" : "Save"}
             </button>
           </div>
         </section>
 
+        {/* Data directory */}
         <section className="card p-4 space-y-2">
           <h3 className="text-sm font-medium text-text-primary">Data Directory</h3>
           <p className="text-xs text-text-muted">
@@ -98,10 +152,11 @@ export function SettingsView() {
           </code>
         </section>
 
+        {/* About */}
         <section className="card p-4 space-y-2">
           <h3 className="text-sm font-medium text-text-primary">About</h3>
           <div className="text-xs text-text-muted space-y-1">
-            <p>Claude Conductor v0.1.0</p>
+            <p>Claude Conductor{version ? ` v${version}` : ""}</p>
             <p>
               Built by{" "}
               <a
@@ -117,6 +172,43 @@ export function SettingsView() {
           </div>
         </section>
       </div>
+    </div>
+  );
+}
+
+// ─── Toggle row ───────────────────────────────────────────────────────────────
+
+function ToggleRow({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-text-primary">{label}</p>
+        <p className="text-xs text-text-muted mt-0.5">{description}</p>
+      </div>
+      <button
+        onClick={() => onChange(!checked)}
+        className={`shrink-0 w-9 h-5 rounded-full transition-colors duration-200 relative ${
+          checked ? "bg-accent" : "bg-bg-border"
+        }`}
+        role="switch"
+        aria-checked={checked}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 ${
+            checked ? "translate-x-4" : "translate-x-0"
+          }`}
+        />
+      </button>
     </div>
   );
 }
