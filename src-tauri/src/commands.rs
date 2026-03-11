@@ -1,4 +1,5 @@
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_autostart::ManagerExt;
 
 use crate::app_detector::detect_claude_desktop_path;
 use crate::config_generator::write_desktop_config;
@@ -12,7 +13,6 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-// Keychain service name
 const KEYCHAIN_SERVICE: &str = "claude-conductor";
 
 fn keychain_key(profile_id: &str, server_name: &str, env_key: &str) -> String {
@@ -47,9 +47,16 @@ pub fn update_profile(app: AppHandle, id: String, data: ProfileUpdate) -> CmdRes
 }
 
 #[tauri::command]
+pub fn duplicate_profile(app: AppHandle, id: String) -> CmdResult<String> {
+    let store = ProfileStore::new(&app).map_err(err)?;
+    let profile = store.duplicate(&id).map_err(err)?;
+    let _ = crate::rebuild_tray_menu(&app);
+    Ok(profile.id)
+}
+
+#[tauri::command]
 pub fn delete_profile(app: AppHandle, id: String) -> CmdResult<()> {
     let store = ProfileStore::new(&app).map_err(err)?;
-    // Delete all keychain entries for this profile before removing
     if let Ok(profile) = store.load_by_id(&id) {
         for (server_name, server_cfg) in &profile.mcp_servers {
             for secret_key in &server_cfg.secret_keys {
@@ -89,9 +96,6 @@ pub fn export_profile(app: AppHandle, profile_id: String, dest_dir: String) -> C
 
 // ─── Keychain helpers ─────────────────────────────────────────────────────────
 
-/// For create, secret_keys are preserved in the model; values stay in env for
-/// first launch. The user should re-save (update) to move them to the keychain,
-/// at which point store_secrets_from_update picks them up.
 fn store_secrets_from_create(data: ProfileCreate) -> CmdResult<ProfileCreate> {
     Ok(data)
 }
@@ -116,7 +120,6 @@ fn store_secrets_from_update(profile_id: &str, mut data: ProfileUpdate) -> CmdRe
     Ok(data)
 }
 
-/// Resolve keychain secrets into a profile's env vars before launching.
 pub fn resolve_secrets(profile: &mut Profile) -> CmdResult<()> {
     for (server_name, server_cfg) in profile.mcp_servers.iter_mut() {
         for secret_key in &server_cfg.secret_keys.clone() {
@@ -124,19 +127,15 @@ pub fn resolve_secrets(profile: &mut Profile) -> CmdResult<()> {
             match keyring::Entry::new(KEYCHAIN_SERVICE, &kc_key)
                 .and_then(|e| e.get_password())
             {
-                Ok(value) => {
-                    server_cfg.env.insert(secret_key.clone(), value);
-                }
-                Err(e) => {
-                    log::warn!("Could not retrieve secret {} from keychain: {}", kc_key, e);
-                }
+                Ok(value) => { server_cfg.env.insert(secret_key.clone(), value); }
+                Err(e) => { log::warn!("Could not retrieve secret {} from keychain: {}", kc_key, e); }
             }
         }
     }
     Ok(())
 }
 
-// ─── Keychain commands (called from frontend) ─────────────────────────────────
+// ─── Keychain commands ────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub fn store_secret(profile_id: String, server_name: String, key: String, value: String) -> CmdResult<()> {
@@ -165,6 +164,23 @@ pub fn delete_secret(profile_id: String, server_name: String, key: String) -> Cm
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("Keychain error: {}", e)),
     }
+}
+
+// ─── Launch at login ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn set_launch_at_login(app: AppHandle, enabled: bool) -> CmdResult<()> {
+    let mgr = app.autolaunch();
+    if enabled {
+        mgr.enable().map_err(err)
+    } else {
+        mgr.disable().map_err(err)
+    }
+}
+
+#[tauri::command]
+pub fn get_launch_at_login(app: AppHandle) -> CmdResult<bool> {
+    app.autolaunch().is_enabled().map_err(err)
 }
 
 // ─── Instance commands ────────────────────────────────────────────────────────
@@ -201,11 +217,7 @@ pub fn launch_profile(
 }
 
 #[tauri::command]
-pub fn kill_instance(
-    app: AppHandle,
-    pid: u32,
-    registry: State<InstanceRegistry>,
-) -> CmdResult<()> {
+pub fn kill_instance(app: AppHandle, pid: u32, registry: State<InstanceRegistry>) -> CmdResult<()> {
     process_manager::kill(pid, &registry).map_err(err)?;
     let _ = crate::rebuild_tray_menu(&app);
     Ok(())
@@ -302,19 +314,14 @@ pub fn read_host_claude_config() -> CmdResult<serde_json::Value> {
     };
 
     if !config_path.exists() {
-        return Err(format!(
-            "Claude Desktop config not found at {}",
-            config_path.display()
-        ));
+        return Err(format!("Claude Desktop config not found at {}", config_path.display()));
     }
 
     let raw = std::fs::read_to_string(&config_path).map_err(err)?;
     let parsed: serde_json::Value = serde_json::from_str(&raw).map_err(err)?;
-
     let servers = parsed
         .get("mcpServers")
         .cloned()
         .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-
     Ok(servers)
 }
