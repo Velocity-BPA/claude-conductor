@@ -3,6 +3,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, RunEvent,
 };
+use tauri_plugin_autostart::MacosLauncher;
 
 mod app_detector;
 mod commands;
@@ -16,6 +17,7 @@ pub use commands::*;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![])))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
@@ -26,6 +28,7 @@ pub fn run() {
             commands::list_profiles,
             commands::create_profile,
             commands::update_profile,
+            commands::duplicate_profile,
             commands::delete_profile,
             commands::reorder_profiles,
             commands::import_profile,
@@ -38,6 +41,11 @@ pub fn run() {
             commands::update_settings,
             commands::detect_claude_path,
             commands::read_host_claude_config,
+            commands::store_secret,
+            commands::get_secret,
+            commands::delete_secret,
+            commands::set_launch_at_login,
+            commands::get_launch_at_login,
             commands::force_quit,
             commands::minimize_window,
             commands::toggle_maximize,
