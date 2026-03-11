@@ -5,24 +5,37 @@ import type { Profile } from "@/types";
 interface ProfileCardProps {
   profile: Profile;
   isRunning: boolean;
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
+  isDragging?: boolean;
+  isDropTarget?: boolean;
 }
 
-export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
-  const { launchProfile, killInstance, focusInstance, setModal, exportProfileToDialog } = useStore();
+export function ProfileCard({ profile, isRunning, dragHandleProps, isDragging, isDropTarget }: ProfileCardProps) {
+  const { launchProfile, killInstance, focusInstance, duplicateProfile, setModal, exportProfileToDialog } = useStore();
   const instance = useStore((s) => selectInstanceForProfile(s, profile.id));
   const isLaunching = useStore((s) => s.launchingProfiles.has(profile.id));
   const mcpCount = Object.keys(profile.mcpServers).length;
-
-  // Disable launch if already running or in the process of launching
   const launchDisabled = isRunning || isLaunching;
 
   return (
     <div
       className={clsx(
-        "card glow-on-hover p-4 flex items-center gap-4 transition-all duration-200 group",
-        isRunning && "border-status-running/20"
+        "card p-4 flex items-center gap-4 transition-all duration-150 group",
+        isRunning && "border-status-running/20",
+        isDragging && "opacity-40",
+        isDropTarget && "border-accent/50 bg-accent/5",
+        !isDragging && "glow-on-hover"
       )}
     >
+      {/* Drag handle */}
+      <div
+        {...dragHandleProps}
+        className="text-text-muted/30 hover:text-text-muted/70 cursor-grab active:cursor-grabbing shrink-0 select-none px-0.5 transition-colors"
+        title="Drag to reorder"
+      >
+        ⠿
+      </div>
+
       <div
         className="w-10 h-10 rounded-[8px] flex items-center justify-center text-xl shrink-0 relative"
         style={{ background: `${profile.color}18`, boxShadow: `0 0 0 1px ${profile.color}30` }}
@@ -54,7 +67,6 @@ export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
             </span>
           )}
         </div>
-
         <div className="flex items-center gap-3 mt-0.5">
           {profile.description && (
             <span className="text-xs text-text-muted truncate">{profile.description}</span>
@@ -75,6 +87,13 @@ export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
           Edit
         </button>
         <button
+          onClick={() => duplicateProfile(profile.id)}
+          className="btn-ghost text-xs px-2 py-1"
+          title="Duplicate profile"
+        >
+          Duplicate
+        </button>
+        <button
           onClick={() => exportProfileToDialog(profile.id)}
           className="btn-ghost text-xs px-2 py-1"
           title="Export profile to file"
@@ -90,7 +109,7 @@ export function ProfileCard({ profile, isRunning }: ProfileCardProps) {
         </button>
       </div>
 
-      {/* Primary action buttons */}
+      {/* Primary action */}
       <div className="shrink-0 flex items-center gap-1.5">
         {isRunning ? (
           <>
