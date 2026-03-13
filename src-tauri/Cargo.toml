@@ -1,6 +1,6 @@
 [package]
 name = "claude-conductor"
-version = "0.6.0"
+version = "1.0.0"
 description = "Multi-profile launcher and manager for Claude Desktop"
 authors = ["Velocity BPA"]
 edition = "2021"
