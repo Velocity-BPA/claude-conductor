@@ -5,7 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useStore } from "@/stores";
 
 export function SettingsView() {
-  const { settings, loadSettings, setLaunchAtLogin } = useStore();
+  const { settings, loadSettings, setLaunchAtLogin, getLaunchAtLoginFromOS } = useStore();
   const [saving, setSaving] = useState(false);
   const [claudePath, setClaudePath] = useState(settings?.claudeDesktopPath ?? "");
   const [detectMsg, setDetectMsg] = useState<string | null>(null);
@@ -13,6 +13,8 @@ export function SettingsView() {
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
+    // Sync launchAtLogin with actual OS state on mount
+    getLaunchAtLoginFromOS();
   }, []);
 
   useEffect(() => {
@@ -55,15 +57,11 @@ export function SettingsView() {
     }
   };
 
-  const handleToggle = async (key: "confirmBeforeKill" | "showInDock", value: boolean) => {
+  const handleToggle = async (key: "confirmBeforeKill", value: boolean) => {
     await invoke("update_settings", {
       settings: { ...settings, [key]: value },
     });
     await loadSettings();
-  };
-
-  const handleLaunchAtLogin = async (value: boolean) => {
-    await setLaunchAtLogin(value);
   };
 
   return (
@@ -84,7 +82,7 @@ export function SettingsView() {
             label="Launch at login"
             description="Start Conductor automatically when you log in"
             checked={settings?.launchAtLogin ?? false}
-            onChange={handleLaunchAtLogin}
+            onChange={setLaunchAtLogin}
           />
 
           <div className="border-t border-bg-border" />
@@ -94,15 +92,6 @@ export function SettingsView() {
             description="Show a confirmation dialog before killing a running instance"
             checked={settings?.confirmBeforeKill ?? true}
             onChange={(v) => handleToggle("confirmBeforeKill", v)}
-          />
-
-          <div className="border-t border-bg-border" />
-
-          <ToggleRow
-            label="Show in Dock"
-            description="Show Conductor in the macOS Dock (requires restart)"
-            checked={settings?.showInDock ?? false}
-            onChange={(v) => handleToggle("showInDock", v)}
           />
         </section>
 
