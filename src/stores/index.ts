@@ -37,10 +37,25 @@ interface ProfileStore {
   focusInstance: (pid: number) => Promise<void>;
 
   setLaunchAtLogin: (enabled: boolean) => Promise<void>;
+  getLaunchAtLoginFromOS: () => Promise<boolean>;
 
   setActiveView: (view: ActiveView) => void;
   setModal: (modal: ModalState) => void;
   clearError: () => void;
+}
+
+// Wrap every invoke in a consistent error reporter
+async function attempt<T>(
+  set: (s: Partial<{ error: string | null }>) => void,
+  label: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    set({ error: `${label}: ${String(e)}` });
+    throw e;
+  }
 }
 
 export const useStore = create<ProfileStore>((set, get) => ({
@@ -59,7 +74,7 @@ export const useStore = create<ProfileStore>((set, get) => ({
       const profiles = await invoke<Profile[]>("list_profiles");
       set({ profiles, isLoading: false });
     } catch (e) {
-      set({ error: String(e), isLoading: false });
+      set({ error: `Failed to load profiles: ${String(e)}`, isLoading: false });
     }
   },
 
@@ -82,28 +97,38 @@ export const useStore = create<ProfileStore>((set, get) => ({
   },
 
   createProfile: async (data: ProfileCreate): Promise<string> => {
-    const id = await invoke<string>("create_profile", { data });
+    const id = await attempt(set, "Failed to create profile", () =>
+      invoke<string>("create_profile", { data })
+    );
     await get().loadProfiles();
     return id;
   },
 
   updateProfile: async (id: string, data: ProfileUpdate) => {
-    await invoke("update_profile", { id, data });
+    await attempt(set, "Failed to update profile", () =>
+      invoke("update_profile", { id, data })
+    );
     await get().loadProfiles();
   },
 
   duplicateProfile: async (id: string) => {
-    await invoke("duplicate_profile", { id });
+    await attempt(set, "Failed to duplicate profile", () =>
+      invoke("duplicate_profile", { id })
+    );
     await get().loadProfiles();
   },
 
   deleteProfile: async (id: string) => {
-    await invoke("delete_profile", { id });
+    await attempt(set, "Failed to delete profile", () =>
+      invoke("delete_profile", { id })
+    );
     await get().loadProfiles();
   },
 
   reorderProfiles: async (orderedIds: string[]) => {
-    await invoke("reorder_profiles", { orderedIds });
+    await attempt(set, "Failed to reorder profiles", () =>
+      invoke("reorder_profiles", { orderedIds })
+    );
     await get().loadProfiles();
   },
 
@@ -114,13 +139,17 @@ export const useStore = create<ProfileStore>((set, get) => ({
       multiple: false,
     });
     if (!filePath) return;
-    await invoke("import_profile", { filePath: filePath as string });
+    await attempt(set, "Failed to import profile", () =>
+      invoke("import_profile", { filePath: filePath as string })
+    );
     await get().loadProfiles();
   },
 
   exportProfileToDialog: async (profileId: string) => {
     const profile = get().profiles.find((p) => p.id === profileId);
-    const defaultName = profile ? `${profile.name.replace(/[^a-z0-9]/gi, "_")}.json` : "profile.json";
+    const defaultName = profile
+      ? `${profile.name.replace(/[^a-z0-9]/gi, "_")}.json`
+      : "profile.json";
     const filePath = await save({
       title: "Export Profile",
       defaultPath: defaultName,
@@ -128,7 +157,9 @@ export const useStore = create<ProfileStore>((set, get) => ({
     });
     if (!filePath) return;
     const dir = filePath.substring(0, filePath.lastIndexOf("/"));
-    await invoke("export_profile", { profileId, destDir: dir });
+    await attempt(set, "Failed to export profile", () =>
+      invoke("export_profile", { profileId, destDir: dir })
+    );
   },
 
   launchProfile: async (profileId: string) => {
@@ -166,17 +197,47 @@ export const useStore = create<ProfileStore>((set, get) => ({
       if (!ok) return;
     }
 
-    await invoke("kill_instance", { pid });
+    await attempt(set, "Failed to kill instance", () =>
+      invoke("kill_instance", { pid })
+    );
     await get().loadInstances();
   },
 
   focusInstance: async (pid: number) => {
-    await invoke("focus_instance", { pid });
+    await attempt(set, "Failed to focus instance", () =>
+      invoke("focus_instance", { pid })
+    );
   },
 
   setLaunchAtLogin: async (enabled: boolean) => {
-    await invoke("set_launch_at_login", { enabled });
+    await attempt(set, "Failed to set launch at login", () =>
+      invoke("set_launch_at_login", { enabled })
+    );
+    // Sync the stored setting to match
+    await attempt(set, "Failed to update settings", () =>
+      invoke("update_settings", {
+        settings: { ...get().settings, launchAtLogin: enabled },
+      })
+    );
     await get().loadSettings();
+  },
+
+  getLaunchAtLoginFromOS: async (): Promise<boolean> => {
+    try {
+      const enabled = await invoke<boolean>("get_launch_at_login");
+      // Sync stored setting if it drifted from OS state
+      const current = get().settings;
+      if (current && current.launchAtLogin !== enabled) {
+        await invoke("update_settings", {
+          settings: { ...current, launchAtLogin: enabled },
+        });
+        await get().loadSettings();
+      }
+      return enabled;
+    } catch (e) {
+      console.error("Failed to get launch at login state:", e);
+      return get().settings?.launchAtLogin ?? false;
+    }
   },
 
   setActiveView: (view) => set({ activeView: view }),
