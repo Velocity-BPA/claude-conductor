@@ -37,34 +37,56 @@ Claude Conductor solves this by letting you define named profiles, each with the
 - [Claude Desktop](https://claude.ai/download) installed at `/Applications/Claude.app`
 - [Node.js](https://nodejs.org) 18+
 - [Rust](https://rustup.rs) (stable toolchain)
+- Python 3 + Pillow (for icon generation — see below)
+
+---
+
+## ⚠️ Before You Build: Generate Icons
+
+**This step is required after every fresh clone.** The app icon files (`32x32.png`, `128x128.png`, etc.) cannot be stored as valid binaries in this repository due to GitHub API limitations — they must be generated locally before the Rust build will succeed.
+
+If you skip this step you will see this error when building:
+
+```
+error: failed to read icon /path/to/icons/32x32.png: Invalid PNG signature.
+```
+
+**Fix — run this once after cloning:**
+
+```sh
+pip3 install Pillow
+python3 scripts/generate_icons.py
+```
+
+That's it. The script generates all required icon sizes from the source SVG. You only need to run it again if you delete the `src-tauri/icons/` directory or do a fresh clone.
 
 ---
 
 ## Development
 
 ```sh
-# Clone
+# 1. Clone
 git clone https://github.com/Velocity-BPA/claude-conductor.git
 cd claude-conductor
 
-# Install JS dependencies
+# 2. Install JS dependencies
 npm install
 
-# Regenerate app icons (required after fresh clone — binary files not stored in git)
-python3 -m pip install Pillow
+# 3. Generate icons (required — see above)
+pip3 install Pillow
 python3 scripts/generate_icons.py
 
-# Start dev server
+# 4. Start dev server
 npm run tauri:dev
 ```
+
+The app window will appear after ~15–30 seconds on first run while Rust compiles dependencies.
 
 ### Build for release
 
 ```sh
 npm run tauri:build
 ```
-
-> **Note:** `src-tauri/icons/icon.icns` is not committed to the repo (too large for the GitHub API). Run `python3 scripts/generate_icons.py` after cloning to regenerate it before building.
 
 ---
 
@@ -157,9 +179,27 @@ On launch, secrets are resolved from the keychain into memory just before Claude
 
 ## Known Limitations
 
+- **Icons must be generated locally** — run `python3 scripts/generate_icons.py` after every fresh clone (see [Before You Build](#️-before-you-build-generate-icons) above)
 - **PID tracking is best-effort** — if Claude Desktop's process is not detected within ~6 seconds of launch, a sentinel PID is used and the instance will auto-clear from the registry on the next poll
 - **Keychain secrets not stored on profile create** — secrets are moved to the keychain on the first save/edit after creation
-- **macOS only (primary)** — the kill mechanism (`pgrep`) and window focus logic (`osascript`) are macOS-specific. Windows/Linux builds compile but instance management features are limited
+- **macOS only (primary)** — the kill mechanism (`pgrep`) and window focus logic (`osascript`) are macOS-specific; Windows/Linux builds compile but instance management features are limited
+
+---
+
+## Changelog
+
+### v1.0.1
+- Fixed TypeScript build error: removed unused `deleteProfile` import from top-level `ProfileModal` destructure (it was already correctly scoped inside `DeleteConfirmModal`)
+
+### v1.0.0
+- Initial stable release
+- Multi-instance launch with isolated user data directories
+- MCP secrets stored in macOS Keychain
+- One-click import from existing `claude_desktop_config.json`
+- Drag-to-reorder, search/filter, duplicate profiles
+- Focus & Kill with full Electron process tree termination
+- Launch at login, system tray, confirm-before-kill
+- Built with Tauri 2.0 + React + Rust
 
 ---
 
