@@ -6,7 +6,7 @@ import { useStore } from "@/stores";
 import { PROFILE_ICONS, PROFILE_COLORS, type McpServerConfig } from "@/types";
 
 export function ProfileModal() {
-  const { modal, setModal, profiles, createProfile, updateProfile, deleteProfile } = useStore();
+  const { modal, setModal, profiles, createProfile, updateProfile } = useStore();
 
   if (modal.type === "none") return null;
   if (modal.type === "delete") return <DeleteConfirmModal />;
