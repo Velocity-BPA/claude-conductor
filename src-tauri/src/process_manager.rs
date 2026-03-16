@@ -60,10 +60,10 @@ impl InstanceRegistry {
             if sys.process(Pid::from_u32(pid)).is_some() {
                 return true;
             }
-            // The tracked PID died — but before pruning, check whether any process
-            // in the tree for this user_data_dir is still alive. This handles the case
-            // where we tracked a short-lived helper PID and the main process is still
-            // running under a different PID.
+            // The tracked PID died — but before pruning, check whether any main
+            // process in the tree for this user_data_dir is still alive. This
+            // handles the case where we tracked a short-lived helper PID and the
+            // main process is still running under a different PID.
             if !instance.user_data_dir.is_empty() {
                 let still_alive = sys.processes().values().any(|p| {
                     let cmd: Vec<String> = p
@@ -76,19 +76,12 @@ impl InstanceRegistry {
                     has_userdata && is_main
                 });
                 if still_alive {
-                    // Update the stored PID to the actual live main process PID
-                    // so future prune checks work correctly.
                     if let Some(new_pid) = find_main_pid_for_userdata(&sys, &instance.user_data_dir) {
                         log::info!(
-                            "Updating stale PID {} → {} for profile {}",
+                            "Stale PID {} still alive as PID {} for profile {}",
                             pid, new_pid, instance.profile_id
                         );
-                        // Can't mutate map key in place — flag for re-insertion below.
-                        // Return false to remove the stale entry; caller re-inserts.
-                        // We handle this by returning true but updating instance.pid outside.
-                        // Since we can't do that here cleanly, just keep the entry alive
-                        // — it will self-correct on the next prune cycle via re-registration.
-                        let _ = new_pid; // suppress warning
+                        let _ = new_pid;
                     }
                     return true;
                 }
@@ -100,10 +93,11 @@ impl InstanceRegistry {
 }
 
 /// Find the main (non-helper) Electron process PID for a given user_data_dir.
+/// Uses .iter() to get (&Pid, &Process) tuples from the processes HashMap.
 fn find_main_pid_for_userdata(sys: &System, user_data_dir: &str) -> Option<u32> {
     sys.processes()
-        .values()
-        .filter(|p| {
+        .iter()
+        .filter(|(_, p)| {
             let cmd: Vec<String> = p
                 .cmd()
                 .iter()
@@ -188,7 +182,6 @@ pub fn launch(
 // ─── Kill ─────────────────────────────────────────────────────────────────────
 
 pub fn kill(pid: u32, registry: &InstanceRegistry) -> Result<()> {
-    // Look up the stored user_data_dir for this instance
     let user_data_dir = registry
         .get_by_pid(pid)
         .map(|i| i.user_data_dir)
@@ -199,8 +192,6 @@ pub fn kill(pid: u32, registry: &InstanceRegistry) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         if !user_data_dir.is_empty() {
-            // Use pgrep to find all PIDs whose args contain the user data dir,
-            // then kill -9 each one. This handles the full Electron process tree.
             let pgrep = Command::new("pgrep")
                 .args(["-f", &user_data_dir])
                 .output();
@@ -226,7 +217,6 @@ pub fn kill(pid: u32, registry: &InstanceRegistry) -> Result<()> {
                 }
             }
         } else {
-            // No user_data_dir stored (sentinel or old entry) — kill PID directly
             log::info!("No user_data_dir for PID {}, killing directly", pid);
             let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
         }
