@@ -1,6 +1,6 @@
 [package]
 name = "claude-conductor"
-version = "1.0.2"
+version = "1.0.3"
 description = "Multi-profile launcher and manager for Claude Desktop"
 authors = ["Velocity BPA"]
 edition = "2021"
@@ -35,7 +35,7 @@ thiserror = "1"
 dirs = "5"
 log = "0.4"
 
-# Process monitoring
+# sysinfo retained for non-macOS process management only
 sysinfo = "0.31"
 
 # Secure credential storage
