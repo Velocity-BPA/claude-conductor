@@ -1,6 +1,6 @@
 {
   "name": "claude-conductor",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Multi-profile launcher and manager for Claude Desktop",
   "private": true,
   "scripts": {
